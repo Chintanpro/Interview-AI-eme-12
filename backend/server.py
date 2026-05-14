@@ -398,6 +398,8 @@ async def list_sessions(user=Depends(get_current_user), limit: int = 20, skip: i
 
 @api_router.post("/company-prep")
 async def create_company_prep(data: CompanyPrepRequest, user=Depends(get_current_user)):
+    import asyncio
+    
     # Check cache first
     cached = await db.company_preps.find_one({
         "company_name": data.company_name.lower(),
@@ -415,8 +417,40 @@ async def create_company_prep(data: CompanyPrepRequest, user=Depends(get_current
             except (ValueError, TypeError):
                 pass
     
-    # Generate fresh
-    result = await generate_company_prep(data.company_name, data.role, data.experience_level)
+    # Generate fresh with timeout
+    TIMEOUT_SECONDS = 55  # Leave margin before typical 60s client timeout
+    
+    try:
+        result = await asyncio.wait_for(
+            generate_company_prep(data.company_name, data.role, data.experience_level),
+            timeout=TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        logger.warning(f"Company prep timed out after {TIMEOUT_SECONDS}s for {data.company_name}/{data.role}")
+        # Return stale cache if available, otherwise a helpful error
+        if cached:
+            return {
+                "prep": serialize_doc(cached),
+                "from_cache": True,
+                "warning": "AI generation timed out. Showing previous results."
+            }
+        raise HTTPException(
+            status_code=504,
+            detail="AI generation is taking longer than expected. This can happen with complex company/role combinations. Please try again — results are faster on retry."
+        )
+    except Exception as e:
+        logger.error(f"Company prep error: {e}")
+        # On other errors, try stale cache
+        if cached:
+            return {
+                "prep": serialize_doc(cached),
+                "from_cache": True,
+                "warning": "AI generation failed. Showing previous results."
+            }
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate predictions. Please try again in a moment."
+        )
     
     prep_doc = {
         "id": gen_id(),

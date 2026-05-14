@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Send, ArrowLeft, Clock, Loader2, Mic, MicOff, Volume2, VolumeX, Keyboard } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Send, ArrowLeft, Clock, Loader2, Mic, MicOff, Volume2, VolumeX, Keyboard, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Textarea } from '../components/ui/textarea';
 import { FeedbackPanel } from '../components/FeedbackPanel';
@@ -14,9 +14,9 @@ export default function InterviewSession() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const {
-    currentSession, currentQuestion, questionNumber, isLoading,
-    evaluation, showFeedback, setSession, setQuestion, setLoading,
-    setEvaluation, hideFeedback, addAnswer, reset
+    currentSession, currentQuestion, questionNumber,
+    evaluation, setSession, setQuestion,
+    setEvaluation, addAnswer, reset
   } = useInterviewStore();
   const user = useAuthStore((s) => s.user);
 
@@ -25,15 +25,17 @@ export default function InterviewSession() {
   const [timer, setTimer] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [showSideFeedback, setShowSideFeedback] = useState(false);
-  const [mode, setMode] = useState('TEXT'); // TEXT or VOICE
+  const [mode, setMode] = useState('TEXT');
   const [autoSpeak, setAutoSpeak] = useState(true);
   const chatRef = useRef(null);
   const timerRef = useRef(null);
+  const lastQuestionRef = useRef(null);
 
   const {
     isListening, transcript, interimTranscript, isSpeaking,
-    isSupported: voiceSupported, startListening, stopListening,
-    getFinalTranscript, setTranscript, speak, stopSpeaking
+    isSupported: voiceSupported, error: voiceError,
+    startListening, stopListening, getFinalTranscript,
+    setTranscript, speak, stopSpeaking
   } = useVoice();
 
   // Initialize session
@@ -53,52 +55,65 @@ export default function InterviewSession() {
       setMode(currentSession.mode || 'TEXT');
     }
     timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Add question to messages when it changes
+  // Add question to messages + auto-speak
   useEffect(() => {
-    if (currentQuestion && (!messages.length || messages[messages.length - 1]?.text !== currentQuestion)) {
+    if (currentQuestion && currentQuestion !== lastQuestionRef.current) {
+      lastQuestionRef.current = currentQuestion;
       setMessages(prev => [...prev, { role: 'interviewer', text: currentQuestion }]);
-      // Auto-speak the question in voice mode
+
+      // Auto-speak in voice mode
       if (mode === 'VOICE' && autoSpeak && voiceSupported) {
-        speak(currentQuestion);
+        // Small delay to let TTS initialize
+        setTimeout(() => speak(currentQuestion), 300);
       }
     }
-  }, [currentQuestion]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentQuestion, mode, autoSpeak, voiceSupported, speak]);
 
-  // Sync voice transcript to answer field
+  // Sync voice transcript → answer field in VOICE mode
   useEffect(() => {
-    if (mode === 'VOICE' && (transcript || interimTranscript)) {
-      setAnswer((transcript + ' ' + interimTranscript).trim());
+    if (mode === 'VOICE') {
+      const full = [transcript, interimTranscript].filter(Boolean).join(' ').trim();
+      if (full) setAnswer(full);
     }
   }, [transcript, interimTranscript, mode]);
 
-  // Auto scroll
+  // Auto scroll chat
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, submitting]);
+
+  // Show voice errors as toasts
+  useEffect(() => {
+    if (voiceError) toast.error(voiceError);
+  }, [voiceError]);
 
   const formatTime = (s) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
   const handleSubmit = async () => {
     let answerText = answer.trim();
-    
-    // In voice mode, get the final transcript
-    if (mode === 'VOICE' && isListening) {
-      answerText = getFinalTranscript();
-      stopListening();
+
+    // In voice mode, finalize the transcript
+    if (mode === 'VOICE') {
+      if (isListening) {
+        answerText = getFinalTranscript();
+        stopListening();
+      }
     }
-    
+
     if (!answerText || submitting) return;
-    
+
+    // Clear input state
     setAnswer('');
     setTranscript('');
     setSubmitting(true);
-    
-    // Stop speaking if AI is still talking
     if (isSpeaking) stopSpeaking();
 
+    // Add candidate message
     setMessages(prev => [...prev, { role: 'candidate', text: answerText }]);
 
     try {
@@ -151,6 +166,9 @@ export default function InterviewSession() {
     if (mode === 'VOICE') {
       if (isListening) stopListening();
       if (isSpeaking) stopSpeaking();
+      // Transfer any voice transcript to the text field
+      const voiceText = getFinalTranscript();
+      if (voiceText) setAnswer(voiceText);
       setMode('TEXT');
     } else {
       if (!voiceSupported) {
@@ -158,6 +176,7 @@ export default function InterviewSession() {
         return;
       }
       setMode('VOICE');
+      toast.info('Voice mode active. Tap the mic to start speaking.', { duration: 3000 });
     }
   };
 
@@ -179,11 +198,11 @@ export default function InterviewSession() {
               <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--success)' }} />
               <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Live Interview</span>
             </div>
-            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{currentSession?.company} — {currentSession?.role}</span>
+            <span className="text-xs hidden sm:inline" style={{ color: 'var(--text-muted)' }}>{currentSession?.company} — {currentSession?.role}</span>
           </div>
           <div className="flex items-center gap-2">
             {/* Mode toggle */}
-            <button onClick={toggleMode} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium"
+            <button onClick={toggleMode} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
               style={{
                 backgroundColor: mode === 'VOICE' ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.05)',
                 color: mode === 'VOICE' ? 'var(--primary-indigo)' : 'var(--text-muted)',
@@ -193,9 +212,10 @@ export default function InterviewSession() {
               {mode === 'VOICE' ? <Mic className="w-3 h-3" /> : <Keyboard className="w-3 h-3" />}
               {mode === 'VOICE' ? 'Voice' : 'Text'}
             </button>
-            {/* Auto-speak toggle in voice mode */}
+            {/* Auto-speak toggle */}
             {mode === 'VOICE' && (
-              <button onClick={() => setAutoSpeak(!autoSpeak)} className="p-1 rounded-lg"
+              <button onClick={() => { setAutoSpeak(!autoSpeak); toast.info(autoSpeak ? 'Auto-speak OFF' : 'Auto-speak ON', { duration: 1500 }); }}
+                className="p-1.5 rounded-lg transition-colors"
                 style={{ backgroundColor: autoSpeak ? 'rgba(34,211,238,0.1)' : 'rgba(255,255,255,0.05)' }}
                 title={autoSpeak ? 'Auto-speak ON' : 'Auto-speak OFF'}
                 data-testid="toggle-auto-speak">
@@ -217,14 +237,14 @@ export default function InterviewSession() {
           {messages.map((msg, i) => (
             <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
               className={`flex ${msg.role === 'candidate' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%]`}>
+              <div className="max-w-[85%]">
                 {msg.role === 'interviewer' && (
                   <div className="flex items-center gap-2 mb-1.5">
                     <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ backgroundColor: `${personaColors[persona]}15`, color: personaColors[persona] }}>
                       {personaNames[persona]?.charAt(0)}
                     </div>
                     <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{personaNames[persona]}</span>
-                    {isSpeaking && msg === messages[messages.length - 1] && msg.role === 'interviewer' && (
+                    {isSpeaking && i === messages.length - 1 && msg.role === 'interviewer' && (
                       <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(34,211,238,0.1)', color: 'var(--accent-cyan)' }}>
                         <Volume2 className="w-3 h-3" /> Speaking...
                       </span>
@@ -238,9 +258,11 @@ export default function InterviewSession() {
                 }>
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
                 </div>
-                {msg.role === 'interviewer' && !isSpeaking && mode === 'VOICE' && (
-                  <button onClick={() => speak(msg.text)} className="mt-1 flex items-center gap-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                    <Volume2 className="w-3 h-3" /> Replay
+                {/* Replay button for interviewer messages in voice mode */}
+                {msg.role === 'interviewer' && mode === 'VOICE' && (
+                  <button onClick={() => { if (isSpeaking) stopSpeaking(); else speak(msg.text); }}
+                    className="mt-1 flex items-center gap-1 text-[10px] hover:opacity-80 transition-opacity" style={{ color: 'var(--text-muted)' }}>
+                    {isSpeaking && i === messages.length - 1 ? <><VolumeX className="w-3 h-3" /> Stop</> : <><Volume2 className="w-3 h-3" /> Replay</>}
                   </button>
                 )}
               </div>
@@ -263,29 +285,47 @@ export default function InterviewSession() {
         {/* Input Area */}
         <div className="px-4 md:px-6 py-4" style={{ borderTop: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-base)' }}>
           {mode === 'VOICE' ? (
-            // Voice Mode Input
+            /* ==================== VOICE MODE ==================== */
             <div className="space-y-3">
+              {/* Voice error banner */}
+              {voiceError && (
+                <div className="flex items-center gap-2 p-2 rounded-lg text-xs" style={{ backgroundColor: 'rgba(239,68,68,0.08)', color: 'var(--danger)' }}>
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{voiceError}</span>
+                </div>
+              )}
+
               {/* Live transcript display */}
-              <div className="min-h-[60px] p-3 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: `1px solid ${isListening ? 'rgba(99,102,241,0.3)' : 'var(--border-subtle)'}` }}>
-                {answer ? (
+              <div className="min-h-[70px] p-3 rounded-xl transition-all" style={{
+                backgroundColor: 'rgba(255,255,255,0.04)',
+                border: `1.5px solid ${isListening ? 'rgba(99,102,241,0.4)' : 'var(--border-subtle)'}`,
+                boxShadow: isListening ? '0 0 12px rgba(99,102,241,0.08)' : 'none',
+              }}>
+                {(transcript || interimTranscript) ? (
                   <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
                     {transcript}
-                    {interimTranscript && <span style={{ color: 'var(--text-muted)' }}> {interimTranscript}</span>}
+                    {interimTranscript && (
+                      <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{transcript ? ' ' : ''}{interimTranscript}</span>
+                    )}
                   </p>
                 ) : (
                   <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                    {isListening ? 'Listening... speak your answer' : 'Tap the microphone to start speaking'}
+                    {isListening
+                      ? 'Listening... speak your answer clearly'
+                      : 'Tap the microphone button below to start speaking your answer'}
                   </p>
                 )}
               </div>
-              
-              <div className="flex items-center gap-3">
-                {/* Mic button */}
+
+              {/* Controls row */}
+              <div className="flex items-center gap-4">
+                {/* Big mic button */}
                 <button onClick={toggleVoiceListening} disabled={submitting}
-                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isListening ? 'animate-pulse' : ''}`}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-all flex-shrink-0 ${isListening ? '' : ''}`}
                   style={{
-                    backgroundColor: isListening ? 'rgba(239,68,68,0.15)' : 'rgba(99,102,241,0.15)',
+                    backgroundColor: isListening ? 'rgba(239,68,68,0.12)' : 'rgba(99,102,241,0.12)',
                     border: `2px solid ${isListening ? 'var(--danger)' : 'var(--primary-indigo)'}`,
+                    boxShadow: isListening ? '0 0 16px rgba(239,68,68,0.15)' : 'none',
                   }}
                   data-testid="voice-mic-button">
                   {isListening
@@ -294,32 +334,40 @@ export default function InterviewSession() {
                   }
                 </button>
 
-                {/* Status indicator */}
-                <div className="flex-1">
-                  {isListening && (
-                    <div className="flex items-center gap-2">
-                      <div className="flex gap-0.5">
+                {/* Status area */}
+                <div className="flex-1 min-w-0">
+                  {isListening ? (
+                    <div className="flex items-center gap-3">
+                      {/* Audio wave bars */}
+                      <div className="flex gap-0.5 items-end h-5">
                         {[0, 1, 2, 3, 4].map(i => (
                           <motion.div key={i}
-                            animate={{ height: [4, 12 + Math.random() * 8, 4] }}
-                            transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.1 }}
-                            className="w-1 rounded-full" style={{ backgroundColor: 'var(--primary-indigo)' }}
+                            animate={{ height: [3, 14 + Math.random() * 6, 3] }}
+                            transition={{ duration: 0.4 + Math.random() * 0.3, repeat: Infinity, repeatType: 'reverse', delay: i * 0.08 }}
+                            className="w-[3px] rounded-full" style={{ backgroundColor: 'var(--primary-indigo)' }}
                           />
                         ))}
                       </div>
                       <span className="text-xs font-medium" style={{ color: 'var(--primary-indigo)' }}>Recording...</span>
+                      <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Tap mic to stop</span>
                     </div>
+                  ) : (
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {answer ? `${answer.split(' ').length} words captured` : 'Ready to record'}
+                    </span>
                   )}
                 </div>
 
                 {/* Submit button */}
-                <Button onClick={handleSubmit} disabled={!answer.trim() || submitting} className="h-11 px-6 rounded-xl text-white" style={{ backgroundColor: 'var(--primary-indigo)' }} data-testid="active-interview-send-message-button">
+                <Button onClick={handleSubmit} disabled={(!answer.trim() && !isListening) || submitting}
+                  className="h-11 px-5 rounded-xl text-white flex-shrink-0 font-medium" style={{ backgroundColor: 'var(--primary-indigo)' }}
+                  data-testid="active-interview-send-message-button">
                   {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-4 h-4 mr-2" /> Submit</>}
                 </Button>
               </div>
             </div>
           ) : (
-            // Text Mode Input
+            /* ==================== TEXT MODE ==================== */
             <div className="flex gap-3 items-end">
               <div className="flex-1 relative">
                 <Textarea value={answer} onChange={(e) => setAnswer(e.target.value)} onKeyDown={handleKeyDown}
@@ -327,7 +375,8 @@ export default function InterviewSession() {
                   className="min-h-[60px] max-h-[150px] rounded-xl resize-none" style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
                   data-testid="interview-answer-input" />
               </div>
-              <Button onClick={handleSubmit} disabled={!answer.trim() || submitting} className="h-11 w-11 rounded-xl p-0 flex-shrink-0 text-white" style={{ backgroundColor: 'var(--primary-indigo)' }} data-testid="active-interview-send-message-button">
+              <Button onClick={handleSubmit} disabled={!answer.trim() || submitting} className="h-11 w-11 rounded-xl p-0 flex-shrink-0 text-white" style={{ backgroundColor: 'var(--primary-indigo)' }}
+                data-testid="active-interview-send-message-button">
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </Button>
             </div>

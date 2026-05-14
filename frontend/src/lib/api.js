@@ -53,7 +53,7 @@ export const interviewAPI = {
 
 // Company Prep
 export const companyAPI = {
-  generate: (data) => api.post('/company-prep', data),
+  generate: (data, config) => api.post('/company-prep', data, config),
 };
 
 // Resume

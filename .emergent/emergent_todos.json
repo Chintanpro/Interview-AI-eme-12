@@ -1,22 +1,18 @@
 [
   {
-    "content": "Phase 3: Add STRIPE_API_KEY to .env and install dependencies",
-    "status": "completed"
+    "content": "Fix voice mode: stale closure bug in onend, duplicate finalText accumulation, voices not loaded for TTS",
+    "status": "in_progress"
   },
   {
-    "content": "Phase 3: Backend - Stripe checkout endpoints (create session, status, webhook)",
-    "status": "completed"
+    "content": "Fix voice mode: update InterviewSession to handle voice state properly",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: Frontend - Stripe checkout flow in Pricing/Settings + payment success page",
-    "status": "completed"
+    "content": "Improve company-prep: backend timeout/retry + frontend progress UX with cancel/retry",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: Frontend - Voice interview mode with Web Speech API",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 3: End-to-end testing with testing agent - 100% pass (46/46)",
-    "status": "completed"
+    "content": "End-to-end testing with testing agent",
+    "status": "pending"
   }
 ]
