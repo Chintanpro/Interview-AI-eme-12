@@ -1,30 +1,38 @@
 [
   {
-    "content": "Phase 3: Add STRIPE_API_KEY to .env and install dependencies",
-    "status": "completed"
+    "content": "CRITICAL: Fix undefined variable bugs in server.py (lines 219, 776-777, 823-827)",
+    "status": "in_progress"
   },
   {
-    "content": "Phase 3: Backend - Stripe checkout endpoints (create session, status, webhook)",
-    "status": "completed"
+    "content": "CRITICAL: Fix `is` vs `==` comparison operators in server.py (5 instances)",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: Frontend - Stripe checkout flow in Pricing/Settings + payment success page",
-    "status": "completed"
+    "content": "CRITICAL: Refactor complex backend functions into smaller helpers",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: Frontend - Voice interview mode with Web Speech API",
-    "status": "completed"
+    "content": "CRITICAL: Fix missing React hook dependencies (20 instances across 9 files)",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: Fix voice mode bugs - stale closure, duplicate transcript, TTS voice loading",
-    "status": "completed"
+    "content": "CRITICAL: Move auth tokens from localStorage to httpOnly cookies",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: Improve company-prep timeout/UX - backend 55s timeout, frontend progress bar + cancel + retry",
-    "status": "completed"
+    "content": "IMPORTANT: Replace array index keys with stable IDs (30 instances)",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: End-to-end testing - 100% pass (61/61 tests)",
-    "status": "completed"
+    "content": "IMPORTANT: Add error handling to empty catch blocks in useVoice.js",
+    "status": "pending"
+  },
+  {
+    "content": "IMPORTANT: Break down large React components (CompanyPrep, InterviewSession, Dashboard, useVoice)",
+    "status": "pending"
+  },
+  {
+    "content": "End-to-end testing with testing agent after all fixes",
+    "status": "pending"
   }
 ]
