@@ -8,7 +8,9 @@
   - Landing → Auth → Dashboard → Practice → Report → Progress
   - Company Question Prediction, Resume Analysis, Salary Coach (Premium-gated)
 - Ensure **plan gating** is enforced consistently across UI + API.
-- Close remaining low-priority reliability gaps (notably **company-prep timeout** under constrained AI budgets).
+- Deliver **monetization readiness** via **Stripe Checkout** for Pro/Premium upgrades.
+- Deliver a **Voice Interview Mode** (Pro feature) using browser-native speech APIs.
+- Track and mitigate low-priority reliability gaps (notably **company-prep timeouts** under constrained AI budgets).
 
 ---
 
@@ -50,7 +52,7 @@
   - Company prep: `/company-prep`
   - Resume: `/resume/analyze`, `/resume/history`
   - Dashboard: `/dashboard/stats`, `/dashboard/progress`
-  - Plan: `/plan/upgrade`
+  - Plan: `/plan/upgrade` (dev override)
 - Enforced plan gating at API level (free limits + premium-only endpoints).
 
 **Frontend (React + Tailwind + shadcn/ui + Framer Motion + Zustand) — Delivered**
@@ -59,14 +61,14 @@
   - Landing (hero, features, testimonials, pricing preview, CTA, footer)
   - Auth (Login/Register split layouts)
   - Dashboard (KPIs + recent sessions + quick start)
-  - Interview Setup (4 personas, 6 rounds, text/voice gating)
+  - Interview Setup (4 personas, 6 rounds, text/voice option with plan gating)
   - Interview Session (chat UI + live feedback rail on desktop)
   - Session Complete (radar chart + dimension breakdown + question review)
   - Company Question Prediction
   - Resume Analysis
   - Salary Coach (Premium-gated)
   - Progress (trend + radar + weakness chart + achievements)
-  - Settings (profile + plan upgrade)
+  - Settings (profile + plan upgrade entry)
   - Pricing (Free/Pro/Premium)
 - Added skeleton/empty states and toast messaging (Sonner).
 - Ensured routing + protected routes via Zustand auth store.
@@ -74,7 +76,7 @@
 ---
 
 ### Phase 2.5 — Validation & QA ✅ COMPLETE (97.4% overall pass)
-**Testing agent results**
+**Testing agent results (Iteration 1)**
 - Frontend: **100% pass** (all major user flows validated)
 - Backend: **92.9% pass**
 - Overall: **97.4% pass (37/38)**
@@ -89,7 +91,54 @@
 
 ---
 
-### Phase 3 — MVP Delivery Polish + Reliability Hardening (Next)
+### Phase 3 — Voice Mode + Stripe Monetization ✅ COMPLETE (100% pass)
+**User stories (delivered)**
+1. As a Pro user, I can run **voice interviews**: speak answers, see live transcription, and submit.
+2. As a Pro user, I can hear AI questions via **auto-speak**, and replay them on demand.
+3. As a user, I can upgrade to Pro/Premium via **Stripe Checkout** from Pricing/Settings.
+4. As a user, after returning from Stripe, my **plan updates automatically** after payment verification.
+5. As an operator, I have a **payment_transactions audit trail** in MongoDB.
+
+**Voice Interview Mode (Pro feature) — Delivered**
+- Added `useVoice` hook using browser-native **Web Speech API**:
+  - SpeechRecognition (STT) + SpeechSynthesis (TTS)
+- Updated `InterviewSession`:
+  - Voice/Text mode toggle
+  - Mic recording button + live transcript panel
+  - Auto-speak toggle for interviewer questions + replay button
+  - Safe stop/cancel behavior for recording/speaking during submit/end
+- Plan gating:
+  - Voice option remains **Pro-gated** (Free users blocked in setup).
+- Browser support:
+  - Best on **Chrome/Edge**; limited elsewhere (graceful fallback messaging).
+
+**Stripe Payment Integration — Delivered**
+- Backend endpoints:
+  - `POST /api/payments/create-checkout`
+  - `GET /api/payments/status/{checkout_session_id}`
+  - `POST /api/webhook/stripe`
+- Uses `emergentintegrations.payments.stripe.checkout` with `STRIPE_API_KEY=sk_test_emergent`.
+- Server-side fixed pricing (never trust frontend for amounts):
+  - Pro: **$19/mo** or **$180/yr**
+  - Premium: **$49/mo** or **$468/yr**
+- MongoDB:
+  - `payment_transactions` collection with indexes for `session_id` (unique) and `user_id`.
+- Frontend:
+  - Pricing page: redirects to Stripe Checkout for Pro/Premium
+  - Settings page: “Upgrade with Stripe” + return handling
+  - Payment status polling on return (`payment=success&session_id=...`) to verify and update plan
+
+**Testing agent results (Iteration 2)**
+- Backend: **100% (16/16)**
+- Frontend: **100% (30/30)**
+- Overall: **100% (46/46)**
+
+**Artifacts**
+- Testing report: `/app/test_reports/iteration_2.json`
+
+---
+
+### Phase 4 — Reliability & Production Hardening (Optional / Next)
 **User stories (polish focus)**
 1. As a user, I want company prediction to reliably return (or gracefully degrade) even when AI is slow.
 2. As a user, I want consistent performance on mobile with no layout breaks.
@@ -97,58 +146,55 @@
 4. As a user, I want stable analytics rendering across empty/partial data.
 5. As an operator, I want better observability for AI failures/timeouts.
 
-**Steps (revised, MVP-closeout oriented)**
-- Company prep reliability (LOW priority but recommended):
-  - Increase server-side timeout window for the company-prep call where safe.
+**Steps (recommended)**
+- Company prep reliability:
+  - Increase server-side timeout window where safe.
   - Add retry/backoff for AI calls and return partial results when possible.
   - Add UX: “This can take up to ~45s” + cancel/retry.
 - Mobile pass:
   - Verify nav drawer, interview chat input, report charts scale, and long text wrapping.
 - Plan gating UX:
-  - Standardize upgrade prompts for locked features (Salary Coach/Voice/Resume if gated).
+  - Standardize upgrade prompts for locked features (Salary Coach/Voice/Resume/Progress as needed).
 - Observability:
   - Add request IDs and structured logs for AI calls; log parse failures with redaction.
+- Stripe production readiness:
+  - Replace test key with live key in production.
+  - Add webhook signature verification and event-type allowlisting (if not already handled by integration layer).
+  - Add idempotency guarantees for webhook replays.
 
 **Exit criteria**
 - Company prep responds reliably or fails gracefully with actionable UI.
 - Mobile responsiveness verified for all primary pages.
 - No console errors in critical flows.
-
----
-
-### Phase 4 — Monetization readiness (optional, next)
-**User stories**
-1. Upgrading a plan immediately unlocks gated features.
-2. Plan persists across devices.
-3. Billing changes do not break history.
-4. Clear config errors if billing isn’t set up.
-5. Pricing copy matches what is enforced.
-
-**Steps**
-- Keep mocked `/plan/upgrade` for dev; optionally integrate Stripe later.
-- Align plan limits/copy with PRD and confirm enforcement.
+- Payment upgrade path remains stable under webhook retries.
 
 ---
 
 ## 3) Next Actions (Updated)
-1. Perform Phase 3 polish:
+1. Optional hardening (Phase 4):
    - Improve `/company-prep` timeout/retry behavior and UX messaging.
    - Run a mobile responsiveness sweep across all pages.
-2. Re-run the testing agent after any changes (target **100%** overall, or document acceptable AI-latency exceptions).
-3. Prepare delivery notes:
-   - Test user credentials
-   - Feature list and gating behavior
-   - Known limitations (AI budget/latency)
+   - Add more observability around AI calls and Stripe webhooks.
+2. If shipping to production:
+   - Set `STRIPE_API_KEY` to live key and validate live-mode webhooks.
+   - Confirm pricing copy matches Stripe products/amounts.
+3. Re-run the testing agent after any changes (target **100%** overall, or document acceptable AI-latency exceptions).
 
 ---
 
 ## 4) Success Criteria (Updated)
-- MVP is delivered with premium UI and all primary flows working:
+- MVP delivered with premium UI and all primary flows working:
   - Landing → Auth → Dashboard → Interview Setup → Interview Session → Session Report
   - Company Prep → Resume Analysis → Progress → Settings → Pricing
 - Plan gating works in **both** UI and API.
+- Monetization readiness:
+  - Stripe checkout sessions create successfully and return checkout URLs.
+  - On return from Stripe, payment status is verified and the plan is upgraded.
+  - Webhook + audit trail exists in MongoDB.
+- Voice mode readiness:
+  - Pro users can use voice mode end-to-end (STT + optional TTS) with graceful fallback on unsupported browsers.
 - Test status:
-  - Frontend flows pass end-to-end.
-  - Backend endpoints pass with documented AI-latency exception for company-prep.
+  - Phase 3 tests: **100% (46/46)**
+  - Known low-priority limitation: company-prep latency can vary due to external AI budgets.
 - Reliability:
   - Company prep either completes within configured bounds or fails gracefully with retry.
