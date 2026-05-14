@@ -1,0 +1,34 @@
+[
+  {
+    "content": "Phase 1: Deploy existing codebase - copy backend/frontend, install deps, configure env",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: Core AI POC - test Claude question generation + evaluation + summary",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 2: Get design guidelines from design agent",
+    "status": "in_progress"
+  },
+  {
+    "content": "Phase 2: Build complete backend with all endpoints",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Build complete frontend with all pages and premium UI",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: End-to-end testing with testing agent",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 3: Feature expansion - progress, salary coach, achievements",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 3: End-to-end testing with testing agent",
+    "status": "pending"
+  }
+]

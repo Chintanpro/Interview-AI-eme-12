@@ -1,0 +1,112 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-base: #040608;
+  --bg-surface: #0E1220;
+  --bg-card: rgba(14, 18, 32, 0.80);
+  --bg-card-hover: rgba(20, 26, 45, 0.85);
+  --bg-sidebar: #0A0D17;
+  --text-primary: #F0F4FF;
+  --text-secondary: #8B9DC3;
+  --text-muted: #4A5680;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --blue: #4F8EF7;
+  --blue-glow: rgba(79, 142, 247, 0.30);
+  --green: #00D68F;
+  --amber: #F5A623;
+  --red: #FF4D6A;
+  --purple: #9B6BF2;
+  --shadow-elev-1: 0 10px 30px rgba(0,0,0,0.35);
+  --shadow-elev-2: 0 18px 60px rgba(0,0,0,0.45);
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --glass-blur: 16px;
+  --font-display: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --focus-outline: 0 0 0 3px rgba(79, 142, 247, 0.25);
+
+  --background: 222 45% 2%;
+  --foreground: 220 60% 96%;
+  --card: 226 39% 9%;
+  --card-foreground: 220 60% 96%;
+  --popover: 226 39% 9%;
+  --popover-foreground: 220 60% 96%;
+  --primary: 217 91% 64%;
+  --primary-foreground: 222 45% 6%;
+  --secondary: 226 30% 14%;
+  --secondary-foreground: 220 60% 96%;
+  --muted: 226 30% 14%;
+  --muted-foreground: 221 25% 65%;
+  --accent: 226 30% 14%;
+  --accent-foreground: 220 60% 96%;
+  --destructive: 350 100% 65%;
+  --destructive-foreground: 220 60% 96%;
+  --border: 0 0% 100% / 0.08;
+  --input: 0 0% 100% / 0.10;
+  --ring: 217 91% 64% / 0.45;
+  --radius: 0.875rem;
+  --chart-1: 217 91% 64%;
+  --chart-2: 158 100% 42%;
+  --chart-3: 38 90% 55%;
+  --chart-4: 350 100% 65%;
+  --chart-5: 262 82% 68%;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Selection */
+::selection {
+  background: rgba(79, 142, 247, 0.3);
+  color: var(--text-primary);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
