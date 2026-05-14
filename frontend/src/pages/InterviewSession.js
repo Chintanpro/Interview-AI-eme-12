@@ -1,281 +1,210 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Clock, ChevronRight, RotateCcw, Square, Loader2 } from 'lucide-react';
+import { Send, ArrowLeft, Clock, Loader2, ChevronRight } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Textarea } from '../components/ui/textarea';
-import { useInterviewStore } from '../lib/store';
+import { FeedbackPanel } from '../components/FeedbackPanel';
 import { interviewAPI } from '../lib/api';
+import { useInterviewStore, useAuthStore } from '../lib/store';
 import { toast } from 'sonner';
-import ScoreRing from '../components/ScoreRing';
-import FeedbackPanel from '../components/FeedbackPanel';
-
-const personaStyles = {
-  RECRUITER: { name: 'Alex', title: 'Senior Recruiter', color: 'var(--green)', initial: 'A' },
-  MANAGER: { name: 'Rachel', title: 'Hiring Manager', color: 'var(--red)', initial: 'R' },
-  TECHNICAL: { name: 'Dev', title: 'Staff Engineer', color: 'var(--blue)', initial: 'D' },
-  PANEL: { name: 'Panel', title: '5 Interviewers', color: 'var(--purple)', initial: 'P' },
-};
 
 export default function InterviewSession() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
-  const {
-    currentSession, currentQuestion, questionNumber,
-    isLoading, evaluation, showFeedback,
-    setSession, setQuestion, setLoading, setEvaluation, hideFeedback, addAnswer, setComplete, reset
-  } = useInterviewStore();
-  
+  const { currentSession, currentQuestion, questionNumber, isLoading, evaluation, showFeedback, setSession, setQuestion, setLoading, setEvaluation, hideFeedback, addAnswer, reset } = useInterviewStore();
+  const user = useAuthStore((s) => s.user);
+
   const [answer, setAnswer] = useState('');
-  const [typedText, setTypedText] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const [rapidFireTimer, setRapidFireTimer] = useState(60);
-  const textareaRef = useRef(null);
+  const [messages, setMessages] = useState([]);
+  const [timer, setTimer] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [showSideFeedback, setShowSideFeedback] = useState(false);
+  const chatRef = useRef(null);
   const timerRef = useRef(null);
-  const rapidRef = useRef(null);
 
-  const persona = personaStyles[currentSession?.persona] || personaStyles.RECRUITER;
-  const isRapidFire = currentSession?.mode === 'RAPID_FIRE';
-
-  // Load session if needed
+  // Initialize session
   useEffect(() => {
     if (!currentSession && sessionId) {
       interviewAPI.getSession(sessionId).then(res => {
         setSession(res.data.session);
         const history = res.data.session.conversation_history || [];
-        const lastQ = [...history].reverse().find(h => h.role === 'interviewer');
-        if (lastQ) {
-          setQuestion(lastQ.text, res.data.session.total_questions || 1);
+        if (history.length > 0) {
+          const lastInterviewer = [...history].reverse().find(h => h.role === 'interviewer');
+          if (lastInterviewer) setQuestion(lastInterviewer.text, res.data.session.total_questions || 1);
         }
-      }).catch(() => {
-        toast.error('Session not found');
-        navigate('/dashboard/interview');
-      });
+      }).catch(() => { toast.error('Session not found'); navigate('/dashboard/interview'); });
     }
-  }, [sessionId]);
+    // Start timer
+    timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Typing animation for question
+  // Add question to messages when it changes
   useEffect(() => {
-    if (!currentQuestion) return;
-    setIsTyping(true);
-    setTypedText('');
-    let i = 0;
-    const interval = setInterval(() => {
-      if (i < currentQuestion.length) {
-        setTypedText(currentQuestion.slice(0, i + 1));
-        i++;
-      } else {
-        setIsTyping(false);
-        clearInterval(interval);
-      }
-    }, 20);
-    return () => clearInterval(interval);
-  }, [currentQuestion]);
+    if (currentQuestion && (!messages.length || messages[messages.length - 1]?.text !== currentQuestion)) {
+      setMessages(prev => [...prev, { role: 'interviewer', text: currentQuestion }]);
+    }
+  }, [currentQuestion]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Session timer
+  // Auto scroll
   useEffect(() => {
-    timerRef.current = setInterval(() => setElapsedTime(t => t + 1), 1000);
-    return () => clearInterval(timerRef.current);
-  }, []);
+    if (chatRef.current) chatRef.current.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages]);
 
-  // Rapid fire timer
-  useEffect(() => {
-    if (!isRapidFire || showFeedback) return;
-    setRapidFireTimer(60);
-    rapidRef.current = setInterval(() => {
-      setRapidFireTimer(t => {
-        if (t <= 1) {
-          clearInterval(rapidRef.current);
-          if (answer.trim()) handleSubmit();
-          return 0;
-        }
-        return t - 1;
-      });
-    }, 1000);
-    return () => clearInterval(rapidRef.current);
-  }, [questionNumber, showFeedback, isRapidFire]);
-
-  const formatTime = (seconds) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const wordCount = answer.trim() ? answer.trim().split(/\s+/).length : 0;
+  const formatTime = (s) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
   const handleSubmit = async () => {
-    if (!answer.trim() || isLoading) return;
-    setLoading(true);
-    clearInterval(rapidRef.current);
-    try {
-      const res = await interviewAPI.submitAnswer(sessionId, { answer_text: answer });
-      setEvaluation(res.data.evaluation);
-      addAnswer({ question: currentQuestion, answer: answer, evaluation: res.data.evaluation });
-      setAnswer('');
-    } catch (err) {
-      toast.error('Failed to submit answer');
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (!answer.trim() || submitting) return;
+    const answerText = answer.trim();
+    setAnswer('');
+    setSubmitting(true);
 
-  const handleNextQuestion = async () => {
-    hideFeedback();
-    setLoading(true);
+    // Add user message
+    setMessages(prev => [...prev, { role: 'candidate', text: answerText }]);
+
     try {
-      const res = await interviewAPI.nextQuestion(sessionId);
-      if (res.data.is_complete || !res.data.question) {
-        handleEndSession();
+      // Submit answer for evaluation
+      const evalRes = await interviewAPI.submitAnswer(sessionId, { answer_text: answerText });
+      const evalData = evalRes.data.evaluation;
+      setEvaluation(evalData);
+      setShowSideFeedback(true);
+      addAnswer({ question: currentQuestion, answer: answerText, evaluation: evalData });
+
+      // Get next question
+      const nextRes = await interviewAPI.nextQuestion(sessionId);
+      if (nextRes.data.is_complete || !nextRes.data.question) {
+        toast.success('Interview complete! Generating your report...');
+        await interviewAPI.complete(sessionId);
+        navigate(`/dashboard/interview/session/${sessionId}/complete`);
       } else {
-        setQuestion(res.data.question, res.data.question_number);
+        setQuestion(nextRes.data.question, nextRes.data.question_number);
       }
     } catch (err) {
-      toast.error('Failed to get next question');
+      toast.error(err.response?.data?.detail || 'Failed to process answer');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  const handleEndSession = async () => {
-    setLoading(true);
+  const handleEndInterview = async () => {
     try {
       await interviewAPI.complete(sessionId);
       navigate(`/dashboard/interview/session/${sessionId}/complete`);
     } catch (err) {
-      toast.error('Failed to end session');
-    } finally {
-      setLoading(false);
+      toast.error('Failed to end interview');
     }
   };
 
-  if (!currentSession) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-[var(--blue)]" />
-      </div>
-    );
-  }
+  const handleKeyDown = (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { handleSubmit(); }
+  };
+
+  const persona = currentSession?.persona || 'RECRUITER';
+  const personaNames = { RECRUITER: 'Sarah', MANAGER: 'Marcus', TECHNICAL: 'Priya', PANEL: 'David' };
+  const personaColors = { RECRUITER: '#10B981', MANAGER: '#6366F1', TECHNICAL: '#8B5CF6', PANEL: '#F59E0B' };
 
   return (
-    <div className="h-[calc(100vh-7rem)] lg:h-[calc(100vh-4rem)] flex flex-col lg:flex-row gap-4">
-      {/* Left Panel - AI Interviewer */}
-      <div className="lg:w-[40%] flex flex-col glass-card overflow-hidden">
-        {/* Header */}
-        <div className="p-4 border-b flex items-center gap-3" style={{ borderColor: 'var(--border-subtle)' }}>
-          <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold animate-pulse-glow"
-            style={{ backgroundColor: `${persona.color}20`, color: persona.color }}>
-            {persona.initial}
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-[var(--text-primary)]">{persona.name} — {persona.title}</p>
-            <p className="text-xs text-[var(--text-muted)]">{currentSession.company}, {currentSession.round} Round</p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-[var(--text-muted)]">Q{questionNumber} of ~12</p>
-            <p className="font-mono text-xs text-[var(--text-muted)]">{formatTime(elapsedTime)}</p>
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        <div className="h-1" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
-          <div className="h-full transition-all duration-500" style={{ width: `${(questionNumber / 12) * 100}%`, backgroundColor: 'var(--blue)' }} />
-        </div>
-
-        {/* Question area */}
-        <div className="flex-1 p-6 overflow-y-auto flex flex-col justify-center">
-          {isTyping || typedText ? (
-            <div>
-              <p className="text-lg md:text-xl text-[var(--text-primary)] leading-relaxed">
-                {typedText}
-                {isTyping && <span className="typing-cursor" />}
-              </p>
+    <div className="flex h-[calc(100vh-64px)] -m-4 md:-m-6">
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Session Header */}
+        <div className="flex items-center justify-between px-4 md:px-6 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate('/dashboard/interview')} data-testid="back-to-setup">
+              <ArrowLeft className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--success)' }} />
+              <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Live Interview</span>
             </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <div className="shimmer h-4 w-3/4 rounded" />
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{currentSession?.company} — {currentSession?.role}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-xs px-2 py-1 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}>
+              <Clock className="w-3 h-3 inline mr-1" />{formatTime(timer)}
+            </span>
+            <span className="font-mono text-xs px-2 py-1 rounded-lg" style={{ backgroundColor: 'rgba(99,102,241,0.1)', color: 'var(--primary-indigo)' }}>Q{questionNumber}</span>
+            <Button variant="ghost" size="sm" onClick={handleEndInterview} className="text-xs rounded-xl" style={{ color: 'var(--danger)' }} data-testid="end-interview-button">
+              End Interview
+            </Button>
+          </div>
+        </div>
+
+        {/* Chat Messages */}
+        <div ref={chatRef} className="flex-1 overflow-y-auto px-4 md:px-6 py-4 space-y-4">
+          {messages.map((msg, i) => (
+            <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
+              className={`flex ${msg.role === 'candidate' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] ${msg.role === 'candidate' ? '' : ''}`}>
+                {msg.role === 'interviewer' && (
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ backgroundColor: `${personaColors[persona]}15`, color: personaColors[persona] }}>
+                      {personaNames[persona]?.charAt(0)}
+                    </div>
+                    <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{personaNames[persona]}</span>
+                  </div>
+                )}
+                <div className="p-4 rounded-2xl" style={
+                  msg.role === 'candidate'
+                    ? { background: 'linear-gradient(135deg, var(--primary-indigo), #8B5CF6)', color: 'white', borderBottomRightRadius: '6px' }
+                    : { backgroundColor: 'var(--bg-surface)', borderLeft: `3px solid ${personaColors[persona]}`, borderBottomLeftRadius: '6px', color: 'var(--text-primary)' }
+                }>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+          {submitting && (
+            <div className="flex justify-start">
+              <div className="flex items-center gap-2 px-4 py-3 rounded-2xl" style={{ backgroundColor: 'var(--bg-surface)' }}>
+                <div className="flex gap-1">
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'var(--text-muted)', animationDelay: `${i * 0.15}s` }} />
+                  ))}
+                </div>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Evaluating & generating next question...</span>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Session controls */}
-        <div className="p-4 border-t flex items-center justify-between" style={{ borderColor: 'var(--border-subtle)' }}>
-          <Button
-            variant="ghost"
-            onClick={handleEndSession}
-            disabled={isLoading}
-            className="text-[var(--text-secondary)] hover:text-[var(--red)] rounded-xl text-sm"
-            data-testid="interview-session-end-button"
-          >
-            <Square className="w-4 h-4 mr-1" /> End Session
-          </Button>
-          <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-[var(--text-muted)]" />
-            <span className="font-mono text-sm text-[var(--text-secondary)]">{formatTime(elapsedTime)}</span>
+        {/* Input Area */}
+        <div className="px-4 md:px-6 py-4" style={{ borderTop: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-base)' }}>
+          <div className="flex gap-3 items-end">
+            <div className="flex-1 relative">
+              <Textarea value={answer} onChange={(e) => setAnswer(e.target.value)} onKeyDown={handleKeyDown}
+                placeholder="Type your answer... (Ctrl+Enter to send)" disabled={submitting}
+                className="min-h-[60px] max-h-[150px] rounded-xl resize-none" style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                data-testid="interview-answer-input" />
+            </div>
+            <Button onClick={handleSubmit} disabled={!answer.trim() || submitting} className="h-11 w-11 rounded-xl p-0 flex-shrink-0 text-white" style={{ backgroundColor: 'var(--primary-indigo)' }} data-testid="active-interview-send-message-button">
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Right Panel - Answer Area */}
-      <div className="flex-1 flex flex-col relative">
-        {/* Rapid fire timer */}
-        {isRapidFire && !showFeedback && (
-          <div className="glass-card p-3 mb-4 flex items-center justify-center gap-3">
-            <Loader2 className={`w-5 h-5 ${rapidFireTimer <= 10 ? 'text-[var(--red)] animate-spin' : 'text-[var(--amber)]'}`} />
-            <span className={`font-mono text-2xl font-bold ${rapidFireTimer <= 10 ? 'text-[var(--red)]' : 'text-[var(--text-primary)]'}`}>
-              {formatTime(rapidFireTimer)}
-            </span>
-          </div>
-        )}
-
-        {/* Answer textarea */}
-        {!showFeedback ? (
-          <div className="flex-1 flex flex-col glass-card overflow-hidden">
-            <div className="flex-1 p-4">
-              <Textarea
-                ref={textareaRef}
-                data-testid="interview-session-answer-textarea"
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                placeholder="Type your answer here... Use the STAR method for behavioral questions."
-                className="w-full h-full min-h-[200px] resize-none bg-transparent border-0 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-base leading-relaxed focus-visible:ring-0 focus-visible:ring-offset-0"
-                disabled={isLoading}
-              />
-            </div>
-            <div className="p-4 border-t flex items-center justify-between" style={{ borderColor: 'var(--border-subtle)' }}>
-              <span className={`text-xs font-mono ${
-                wordCount > 600 ? 'text-[var(--red)]' : wordCount > 400 ? 'text-[var(--amber)]' : 'text-[var(--text-muted)]'
-              }`}>
-                {wordCount} words
-              </span>
-              <Button
-                data-testid="interview-session-submit-answer-button"
-                onClick={handleSubmit}
-                disabled={!answer.trim() || isLoading}
-                className="bg-[var(--blue)] hover:bg-[#3E7FF0] text-white rounded-xl px-6 btn-glow"
-              >
-                {isLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <span className="flex items-center gap-2"><Send className="w-4 h-4" /> Submit Answer</span>
-                )}
-              </Button>
+      {/* Side Feedback Panel (desktop) */}
+      <div className="hidden lg:block w-[360px] flex-shrink-0" style={{ borderLeft: '1px solid var(--border-subtle)' }}>
+        <FeedbackPanel evaluation={evaluation} visible={showSideFeedback} onClose={() => setShowSideFeedback(false)} />
+        {!showSideFeedback && (
+          <div className="h-full flex items-center justify-center p-6">
+            <div className="text-center">
+              <BarChart className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--text-muted)', opacity: 0.3 }} />
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Answer a question to see your scoring feedback here</p>
             </div>
           </div>
-        ) : (
-          /* Feedback Panel */
-          <AnimatePresence>
-            <FeedbackPanel
-              evaluation={evaluation}
-              onNext={handleNextQuestion}
-              onRedo={() => { hideFeedback(); setAnswer(''); }}
-              onEnd={handleEndSession}
-              isLoading={isLoading}
-              questionNumber={questionNumber}
-            />
-          </AnimatePresence>
         )}
       </div>
     </div>
+  );
+}
+
+function BarChart(props) {
+  return (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
   );
 }

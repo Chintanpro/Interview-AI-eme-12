@@ -1,202 +1,175 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Building2, Search, Loader2, ChevronDown, ChevronUp, Zap, Download } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Building2, Sparkles, ChevronDown, ChevronUp, Lightbulb, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Label } from '../components/ui/label';
 import { companyAPI } from '../lib/api';
 import { toast } from 'sonner';
 
-const roundTabs = ['HR', 'BEHAVIORAL', 'TECHNICAL', 'CASE_STUDY', 'MANAGERIAL', 'FINAL'];
-const roundLabels = { HR: 'HR', BEHAVIORAL: 'Behavioral', TECHNICAL: 'Technical', CASE_STUDY: 'Case Study', MANAGERIAL: 'Managerial', FINAL: 'Final' };
+const categories = ['HR', 'BEHAVIORAL', 'TECHNICAL', 'CASE_STUDY', 'MANAGERIAL', 'FINAL'];
+const experienceLevels = ['fresher', 'junior', 'mid', 'senior', 'lead', 'manager'];
+const popularCompanies = ['Google', 'Amazon', 'Meta', 'Apple', 'Microsoft', 'Netflix', 'Stripe', 'McKinsey', 'Goldman Sachs'];
 
 export default function CompanyPrep() {
   const [company, setCompany] = useState('');
-  const [role, setRole] = useState('');
+  const [role, setRole] = useState('Software Engineer');
   const [experience, setExperience] = useState('mid');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [activeTab, setActiveTab] = useState('BEHAVIORAL');
   const [expandedQ, setExpandedQ] = useState(null);
-  const [fromCache, setFromCache] = useState(false);
 
   const handleGenerate = async () => {
     if (!company.trim()) { toast.error('Please enter a company name'); return; }
     setLoading(true);
     try {
-      const res = await companyAPI.generate({ company_name: company, role: role || 'Software Engineer', experience_level: experience });
+      const res = await companyAPI.generate({ company_name: company.trim(), role: role.trim(), experience_level: experience });
       setResult(res.data.prep);
-      setFromCache(res.data.from_cache);
-      toast.success(res.data.from_cache ? 'Loaded from cache' : 'Questions generated successfully');
+      const cats = Object.keys(res.data.prep?.questions || {});
+      if (cats.length > 0) setActiveTab(cats[0]);
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to generate questions');
+      toast.error(err.response?.data?.detail || 'Failed to generate predictions');
     } finally {
       setLoading(false);
     }
   };
 
+  const insights = result?.insights || {};
+  const questions = result?.questions || {};
+  const tips = result?.talking_points || {};
+
   return (
-    <div className="space-y-6">
+    <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }} className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-1">Company Interview Prep</h1>
-        <p className="text-[var(--text-secondary)]">Predict the exact questions a company will ask for your role</p>
+        <h2 className="font-display text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Predict Your Interview Questions</h2>
+        <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>See exactly what companies ask for your role — before you walk in the door.</p>
       </div>
 
-      {/* Search Section */}
+      {/* Input */}
       <div className="glass-card p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="text-sm font-medium text-[var(--text-secondary)] mb-1.5 block">Company</label>
-            <Input data-testid="company-prep-search-input" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g., Google, Amazon" className="bg-white/[0.04] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] h-11 rounded-xl" />
+            <Label className="text-sm mb-2 block" style={{ color: 'var(--text-secondary)' }}>Company</Label>
+            <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g., Google" className="h-11 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }} data-testid="company-prep-input" />
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {popularCompanies.slice(0, 5).map(c => (
+                <button key={c} onClick={() => setCompany(c)} className="text-[11px] px-2 py-0.5 rounded-md" style={{ backgroundColor: company === c ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)', color: company === c ? 'var(--primary-indigo)' : 'var(--text-muted)' }}>{c}</button>
+              ))}
+            </div>
           </div>
           <div>
-            <label className="text-sm font-medium text-[var(--text-secondary)] mb-1.5 block">Role</label>
-            <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Software Engineer" className="bg-white/[0.04] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] h-11 rounded-xl" />
+            <Label className="text-sm mb-2 block" style={{ color: 'var(--text-secondary)' }}>Role</Label>
+            <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Software Engineer" className="h-11 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }} />
           </div>
           <div>
-            <label className="text-sm font-medium text-[var(--text-secondary)] mb-1.5 block">Experience</label>
-            <select value={experience} onChange={(e) => setExperience(e.target.value)} className="w-full h-11 rounded-xl px-3 bg-white/[0.04] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm">
-              <option value="fresher">Fresher</option>
-              <option value="junior">1-3 years</option>
-              <option value="mid">3-7 years</option>
-              <option value="senior">7+ years</option>
-            </select>
+            <Label className="text-sm mb-2 block" style={{ color: 'var(--text-secondary)' }}>Experience</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {experienceLevels.map(l => (
+                <button key={l} onClick={() => setExperience(l)} className="text-[11px] px-2.5 py-1 rounded-lg capitalize" style={{ backgroundColor: experience === l ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)', color: experience === l ? 'var(--primary-indigo)' : 'var(--text-muted)', border: `1px solid ${experience === l ? 'rgba(99,102,241,0.3)' : 'transparent'}` }}>{l}</button>
+              ))}
+            </div>
           </div>
         </div>
-        <Button onClick={handleGenerate} disabled={loading} className="w-full md:w-auto h-11 bg-[var(--blue)] hover:bg-[#3E7FF0] text-white rounded-xl font-semibold btn-glow" data-testid="company-prep-generate-button">
-          {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Search className="w-4 h-4 mr-2" />}
-          Generate Interview Questions
+        <Button onClick={handleGenerate} disabled={loading || !company.trim()} className="mt-4 h-11 rounded-xl font-semibold btn-glow text-white" style={{ backgroundColor: 'var(--primary-indigo)' }} data-testid="company-prep-generate-button">
+          {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating...</> : <><Sparkles className="w-4 h-4 mr-2" />Generate Predictions</>}
         </Button>
       </div>
 
+      {/* Results */}
       {result && (
-        <>
+        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           {/* Company Insights */}
-          {result.insights && (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-[var(--text-primary)] capitalize mb-1">{result.company_name}</h2>
-                  <p className="text-sm text-[var(--text-secondary)]">{result.insights.description}</p>
+          {insights.description && (
+            <div className="glass-card p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <Building2 className="w-4 h-4" style={{ color: 'var(--accent-cyan)' }} />
+                <h3 className="font-display text-base font-bold" style={{ color: 'var(--text-primary)' }}>{company}</h3>
+                {insights.interviewDifficulty && (
+                  <span className="text-xs px-2 py-0.5 rounded-full ml-auto" style={{ backgroundColor: insights.interviewDifficulty === 'Hard' || insights.interviewDifficulty === 'Very Hard' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)', color: insights.interviewDifficulty === 'Hard' || insights.interviewDifficulty === 'Very Hard' ? 'var(--danger)' : 'var(--warning)' }}>{insights.interviewDifficulty}</span>
+                )}
+              </div>
+              <p className="text-sm leading-relaxed mb-3" style={{ color: 'var(--text-secondary)' }}>{insights.description}</p>
+              {insights.cultureValues && (
+                <div className="flex flex-wrap gap-2">
+                  {insights.cultureValues.map((v, i) => (
+                    <span key={i} className="text-xs px-2.5 py-1 rounded-lg" style={{ backgroundColor: 'rgba(99,102,241,0.08)', color: 'var(--primary-indigo)' }}>{v}</span>
+                  ))}
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <span className={`text-xs px-2.5 py-1 rounded-lg font-semibold ${
-                    result.insights.interviewDifficulty === 'Very Hard' || result.insights.interviewDifficulty === 'Hard' 
-                      ? 'bg-[rgba(255,77,106,0.12)] text-[var(--red)]' 
-                      : 'bg-[rgba(245,166,35,0.12)] text-[var(--amber)]'
-                  }`}>
-                    {result.insights.interviewDifficulty}
-                  </span>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2 mt-3">
-                {result.insights.cultureValues?.map((v, i) => (
-                  <span key={i} className="text-xs px-2.5 py-1 rounded-lg bg-[rgba(79,142,247,0.1)] text-[var(--blue)]">{v}</span>
-                ))}
-                {result.insights.interviewStyle?.map((s, i) => (
-                  <span key={i} className="text-xs px-2.5 py-1 rounded-lg bg-white/[0.06] text-[var(--text-secondary)]">{s}</span>
-                ))}
-              </div>
-              {fromCache && <p className="text-xs text-[var(--text-muted)] mt-3"><Zap className="w-3 h-3 inline mr-1" />Loaded from cache</p>}
-            </motion.div>
-          )}
-
-          {/* Questions by Round */}
-          <div className="glass-card overflow-hidden">
-            <Tabs defaultValue="HR">
-              <div className="border-b overflow-x-auto" style={{ borderColor: 'var(--border-subtle)' }}>
-                <TabsList className="bg-transparent p-0 h-auto">
-                  {roundTabs.map(r => {
-                    const qs = result.questions?.[r] || [];
-                    return (
-                      <TabsTrigger key={r} value={r} className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--blue)] data-[state=active]:text-[var(--text-primary)] text-[var(--text-secondary)] px-4 py-3 text-sm">
-                        {roundLabels[r]} <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-white/[0.06]">{qs.length}</span>
-                      </TabsTrigger>
-                    );
-                  })}
-                </TabsList>
-              </div>
-              {roundTabs.map(r => (
-                <TabsContent key={r} value={r} className="mt-0">
-                  {(result.questions?.[r] || []).length > 0 ? (
-                    <div>
-                      {result.questions[r].map((q, i) => (
-                        <div key={i} className="border-b last:border-b-0" style={{ borderColor: 'var(--border-subtle)' }}>
-                          <button onClick={() => setExpandedQ(expandedQ === `${r}-${i}` ? null : `${r}-${i}`)} className="w-full p-4 flex items-center gap-3 text-left hover:bg-white/[0.02]">
-                            <span className="font-mono text-xs text-[var(--text-muted)] w-6">{i + 1}</span>
-                            <span className="flex-1 text-sm text-[var(--text-primary)]">{q.question}</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-md ${
-                              q.difficulty === 'hard' ? 'bg-[rgba(255,77,106,0.12)] text-[var(--red)]' :
-                              q.difficulty === 'medium' ? 'bg-[rgba(245,166,35,0.12)] text-[var(--amber)]' :
-                              'bg-[rgba(0,214,143,0.12)] text-[var(--green)]'
-                            }`}>{q.difficulty}</span>
-                            {expandedQ === `${r}-${i}` ? <ChevronUp className="w-4 h-4 text-[var(--text-muted)]" /> : <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />}
-                          </button>
-                          {expandedQ === `${r}-${i}` && (
-                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="px-4 pb-4 pl-10 space-y-3">
-                              <div className="p-3 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
-                                <p className="text-xs font-semibold text-[var(--text-muted)] mb-1 uppercase">Why This Is Asked</p>
-                                <p className="text-sm text-[var(--text-secondary)]">{q.whyAsked}</p>
-                              </div>
-                              <div className="p-3 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
-                                <p className="text-xs font-semibold text-[var(--text-muted)] mb-1 uppercase">What It Tests</p>
-                                <p className="text-sm text-[var(--text-secondary)]">{q.whatItTests}</p>
-                              </div>
-                              {q.howToAnswer && (
-                                <div className="p-3 rounded-xl" style={{ backgroundColor: 'rgba(79,142,247,0.06)' }}>
-                                  <p className="text-xs font-semibold text-[var(--blue)] mb-1 uppercase">How to Answer Well</p>
-                                  <ul className="space-y-1">
-                                    {q.howToAnswer.map((tip, j) => (
-                                      <li key={j} className="text-sm text-[var(--text-secondary)] flex items-start gap-2">
-                                        <span className="text-[var(--blue)]">•</span> {tip}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </motion.div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-8 text-center text-[var(--text-muted)] text-sm">No questions for this round</div>
-                  )}
-                </TabsContent>
-              ))}
-            </Tabs>
-          </div>
-
-          {/* Talking Points */}
-          {result.talking_points && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="glass-card p-5">
-                <h3 className="text-sm font-semibold text-[var(--green)] mb-3">Do Mention</h3>
-                <ul className="space-y-2">
-                  {(result.talking_points.doMention || []).map((p, i) => (
-                    <li key={i} className="text-sm text-[var(--text-secondary)] flex items-start gap-2"><span className="text-[var(--green)]">+</span> {p}</li>
-                  ))}
-                </ul>
-              </div>
-              <div className="glass-card p-5">
-                <h3 className="text-sm font-semibold text-[var(--amber)] mb-3">Be Ready For</h3>
-                <ul className="space-y-2">
-                  {(result.talking_points.beReadyFor || []).map((p, i) => (
-                    <li key={i} className="text-sm text-[var(--text-secondary)] flex items-start gap-2"><span className="text-[var(--amber)]">•</span> {p}</li>
-                  ))}
-                </ul>
-              </div>
-              <div className="glass-card p-5">
-                <h3 className="text-sm font-semibold text-[var(--red)] mb-3">Avoid Saying</h3>
-                <ul className="space-y-2">
-                  {(result.talking_points.avoidSaying || []).map((p, i) => (
-                    <li key={i} className="text-sm text-[var(--text-secondary)] flex items-start gap-2"><span className="text-[var(--red)]">-</span> {p}</li>
-                  ))}
-                </ul>
-              </div>
+              )}
             </div>
           )}
-        </>
+
+          {/* Talking Points */}
+          {tips && (tips.doMention || tips.beReadyFor || tips.avoidSaying) && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {tips.doMention && tips.doMention.length > 0 && (
+                <div className="glass-card p-5">
+                  <div className="flex items-center gap-2 mb-3"><CheckCircle className="w-4 h-4" style={{ color: 'var(--success)' }} /><span className="text-sm font-semibold" style={{ color: 'var(--success)' }}>Do Mention</span></div>
+                  <ul className="space-y-2">{tips.doMention.map((t, i) => <li key={i} className="text-xs" style={{ color: 'var(--text-secondary)' }}>• {t}</li>)}</ul>
+                </div>
+              )}
+              {tips.beReadyFor && tips.beReadyFor.length > 0 && (
+                <div className="glass-card p-5">
+                  <div className="flex items-center gap-2 mb-3"><Lightbulb className="w-4 h-4" style={{ color: 'var(--warning)' }} /><span className="text-sm font-semibold" style={{ color: 'var(--warning)' }}>Be Ready For</span></div>
+                  <ul className="space-y-2">{tips.beReadyFor.map((t, i) => <li key={i} className="text-xs" style={{ color: 'var(--text-secondary)' }}>• {t}</li>)}</ul>
+                </div>
+              )}
+              {tips.avoidSaying && tips.avoidSaying.length > 0 && (
+                <div className="glass-card p-5">
+                  <div className="flex items-center gap-2 mb-3"><AlertTriangle className="w-4 h-4" style={{ color: 'var(--danger)' }} /><span className="text-sm font-semibold" style={{ color: 'var(--danger)' }}>Avoid Saying</span></div>
+                  <ul className="space-y-2">{tips.avoidSaying.map((t, i) => <li key={i} className="text-xs" style={{ color: 'var(--text-secondary)' }}>• {t}</li>)}</ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Question Tabs */}
+          <div className="glass-card p-6">
+            <h3 className="font-display text-base font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Predicted Questions</h3>
+            <div className="flex flex-wrap gap-2 mb-5">
+              {Object.keys(questions).map(cat => {
+                const qs = questions[cat] || [];
+                return (
+                  <button key={cat} onClick={() => { setActiveTab(cat); setExpandedQ(null); }} className="text-xs px-3 py-1.5 rounded-xl font-medium" style={{ backgroundColor: activeTab === cat ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)', color: activeTab === cat ? 'var(--primary-indigo)' : 'var(--text-muted)', border: `1px solid ${activeTab === cat ? 'rgba(99,102,241,0.3)' : 'var(--border-subtle)'}` }}>
+                    {cat.replace('_', ' ')} ({qs.length})
+                  </button>
+                );
+              })}
+            </div>
+            <div className="space-y-3">
+              {(questions[activeTab] || []).map((q, i) => (
+                <div key={i} className="rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)' }}>
+                  <button onClick={() => setExpandedQ(expandedQ === i ? null : i)} className="w-full flex items-start gap-3 p-4 text-left">
+                    <span className="text-sm flex-1" style={{ color: 'var(--text-primary)' }}>{q.question || q}</span>
+                    {q.difficulty && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: q.difficulty === 'hard' ? 'rgba(239,68,68,0.1)' : q.difficulty === 'medium' ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.1)', color: q.difficulty === 'hard' ? 'var(--danger)' : q.difficulty === 'medium' ? 'var(--warning)' : 'var(--success)' }}>{q.difficulty}</span>
+                    )}
+                    {expandedQ === i ? <ChevronUp className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} /> : <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />}
+                  </button>
+                  <AnimatePresence>
+                    {expandedQ === i && q.whyAsked && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="px-4 pb-4">
+                        <div className="p-3 rounded-xl space-y-2" style={{ backgroundColor: 'rgba(99,102,241,0.04)' }}>
+                          <p className="text-xs" style={{ color: 'var(--text-muted)' }}><strong>Why asked:</strong> {q.whyAsked}</p>
+                          {q.whatItTests && <p className="text-xs" style={{ color: 'var(--text-muted)' }}><strong>Tests:</strong> {q.whatItTests}</p>}
+                          {q.howToAnswer && q.howToAnswer.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium mb-1" style={{ color: 'var(--primary-indigo)' }}>How to answer:</p>
+                              <ul className="space-y-1">{q.howToAnswer.map((tip, j) => <li key={j} className="text-xs" style={{ color: 'var(--text-secondary)' }}>• {tip}</li>)}</ul>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              ))}
+            </div>
+          </div>
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   );
 }

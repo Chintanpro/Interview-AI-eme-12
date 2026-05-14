@@ -1,203 +1,149 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, TrendingUp, Trophy, Target, Loader2 } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, BarChart, Bar } from 'recharts';
-import { dashboardAPI, interviewAPI } from '../lib/api';
+import { TrendingUp, BarChart3, Target, Award, Calendar } from 'lucide-react';
+import { dashboardAPI } from '../lib/api';
+import { useAuthStore } from '../lib/store';
+import ScoreRing from '../components/ScoreRing';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, Radar, BarChart, Bar, Cell } from 'recharts';
 
-const milestoneLabels = {
-  first_interview: 'First Interview', streak_3: '3-Day Streak', streak_7: '7-Day Streak',
-  score_70: 'Score 70+', score_80: 'Score 80+', score_90: 'Score 90+',
-  sessions_10: '10 Sessions', sessions_25: '25 Sessions', voice_interview: 'Voice Interview',
-  panel_interview: 'Panel Interview', company_prep: 'Company Prep', resume_analyzed: 'Resume Analyzed'
-};
-
-const allMilestones = Object.keys(milestoneLabels);
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="glass-card p-3 !bg-[rgba(14,18,32,0.95)]" style={{ border: '1px solid var(--border-subtle)' }}>
-      <p className="text-xs text-[var(--text-muted)] mb-1">{label}</p>
-      {payload.map((p, i) => (
-        <p key={i} className="text-sm font-mono font-semibold" style={{ color: p.color }}>{p.name}: {Math.round(p.value)}</p>
-      ))}
-    </div>
-  );
-};
+const milestoneData = [
+  { id: 'first_interview', name: 'First Steps', emoji: '\ud83c\udfaf', req: '1 session' },
+  { id: 'sessions_10', name: 'Dedicated', emoji: '\ud83d\udcaa', req: '10 sessions' },
+  { id: 'sessions_25', name: 'Committed', emoji: '\ud83d\ude80', req: '25 sessions' },
+  { id: 'score_70', name: 'Proficient', emoji: '\u2b50', req: 'Score 70+' },
+  { id: 'score_80', name: 'Strong', emoji: '\ud83c\udf1f', req: 'Score 80+' },
+  { id: 'score_90', name: 'Elite', emoji: '\ud83d\udc8e', req: 'Score 90+' },
+];
 
 export default function Progress() {
   const [data, setData] = useState(null);
-  const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const user = useAuthStore((s) => s.user);
 
   useEffect(() => {
-    Promise.all([
-      dashboardAPI.progress(),
-      interviewAPI.list({ limit: 50 })
-    ]).then(([prog, sess]) => {
-      setData(prog.data);
-      setSessions(sess.data.sessions || []);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    dashboardAPI.progress().then(res => { setData(res.data); }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   if (loading) {
-    return <div className="flex items-center justify-center h-[60vh]"><Loader2 className="w-8 h-8 animate-spin text-[var(--blue)]" /></div>;
+    return (
+      <div className="space-y-6">
+        {[1,2,3].map(i => <div key={i} className="glass-card p-6"><div className="skeleton-shimmer h-32 rounded-xl" /></div>)}
+      </div>
+    );
   }
 
   const scoreTrend = data?.score_trend || [];
-  const dimensionData = data?.dimension_data || [];
-  const weaknessFreq = data?.weakness_frequency || {};
+  const dimData = data?.dimension_data || [];
+  const weaknesses = data?.weakness_frequency || {};
   const milestones = data?.milestones || [];
 
-  // Radar data from latest session
-  const latestDim = dimensionData.length > 0 ? dimensionData[dimensionData.length - 1] : null;
-  const radarData = latestDim ? [
-    { dim: 'Clarity', value: latestDim.clarity || 0 },
-    { dim: 'Confidence', value: latestDim.confidence || 0 },
-    { dim: 'Structure', value: latestDim.structure || 0 },
-    { dim: 'Depth', value: latestDim.depth || 0 },
-    { dim: 'Relevance', value: latestDim.relevance || 0 },
-    { dim: 'Complete', value: latestDim.completeness || 0 },
-  ] : [];
+  const lastDimEntry = dimData[dimData.length - 1] || {};
+  const radarData = ['clarity', 'confidence', 'relevance', 'structure', 'completeness', 'depth'].map(d => ({
+    dimension: d.charAt(0).toUpperCase() + d.slice(1),
+    score: lastDimEntry[d] || 0,
+  }));
 
-  const weaknessData = Object.entries(weaknessFreq).map(([name, count]) => ({ name, count }));
+  const weaknessArr = Object.entries(weaknesses).sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+  const customTooltip = ({ payload, label }) => {
+    if (!payload?.length) return null;
+    return (
+      <div className="glass-card p-3 text-xs" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
+        <p style={{ color: 'var(--text-primary)' }}>{label}</p>
+        {payload.map((p, i) => <p key={i} style={{ color: p.color }}>{p.name}: {Math.round(p.value)}</p>)}
+      </div>
+    );
+  };
+
+  if (!data?.total_sessions) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh]">
+        <Target className="w-14 h-14 mb-4" style={{ color: 'var(--text-muted)', opacity: 0.3 }} />
+        <h3 className="font-display text-lg font-bold" style={{ color: 'var(--text-primary)' }}>No data yet</h3>
+        <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>Complete your first interview to see your progress analytics.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-1">Progress & Analytics</h1>
-        <p className="text-[var(--text-secondary)]">{data?.total_sessions || 0} sessions · {data?.total_answers || 0} answers analyzed</p>
+    <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      {/* Score Trend */}
+      <div className="glass-card p-6">
+        <div className="flex items-center gap-2 mb-5">
+          <TrendingUp className="w-4 h-4" style={{ color: 'var(--primary-indigo)' }} />
+          <h3 className="font-display text-base font-bold" style={{ color: 'var(--text-primary)' }}>Score Trend</h3>
+        </div>
+        <ResponsiveContainer width="100%" height={250}>
+          <LineChart data={scoreTrend}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+            <XAxis dataKey="date" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
+            <YAxis domain={[0, 100]} tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
+            <Tooltip content={customTooltip} />
+            <Line type="monotone" dataKey="score" stroke="#6366F1" strokeWidth={2} dot={{ fill: '#6366F1', r: 3 }} name="Score" />
+          </LineChart>
+        </ResponsiveContainer>
       </div>
 
-      {scoreTrend.length > 0 ? (
-        <>
-          {/* Score Trend */}
-          <div className="glass-card p-6">
-            <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-[var(--blue)]" /> Score Trend
-            </h2>
-            <div className="h-[250px]">
-              <ResponsiveContainer>
-                <AreaChart data={scoreTrend}>
-                  <defs>
-                    <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#4F8EF7" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#4F8EF7" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                  <XAxis dataKey="date" tick={{ fill: '#8B9DC3', fontSize: 11, fontFamily: 'JetBrains Mono' }} />
-                  <YAxis domain={[0, 100]} tick={{ fill: '#8B9DC3', fontSize: 11, fontFamily: 'JetBrains Mono' }} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Area type="monotone" dataKey="score" stroke="#4F8EF7" fill="url(#scoreGrad)" strokeWidth={2} name="Score" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Skills Radar */}
+        <div className="glass-card p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <Target className="w-4 h-4" style={{ color: 'var(--accent-cyan)' }} />
+            <h3 className="font-display text-base font-bold" style={{ color: 'var(--text-primary)' }}>Skills Radar</h3>
           </div>
-
-          {/* Radar + Weakness */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {radarData.length > 0 && (
-              <div className="glass-card p-6">
-                <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">Skill Radar</h2>
-                <div className="h-[250px]">
-                  <ResponsiveContainer>
-                    <RadarChart data={radarData}>
-                      <PolarGrid stroke="rgba(255,255,255,0.08)" />
-                      <PolarAngleAxis dataKey="dim" tick={{ fill: '#8B9DC3', fontSize: 11 }} />
-                      <PolarRadiusAxis domain={[0, 100]} tick={false} />
-                      <Radar name="Score" dataKey="value" stroke="#4F8EF7" fill="#4F8EF7" fillOpacity={0.2} />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-
-            {weaknessData.length > 0 && (
-              <div className="glass-card p-6">
-                <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">Weakness Frequency</h2>
-                <div className="h-[250px]">
-                  <ResponsiveContainer>
-                    <BarChart data={weaknessData} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                      <XAxis type="number" tick={{ fill: '#8B9DC3', fontSize: 11, fontFamily: 'JetBrains Mono' }} />
-                      <YAxis type="category" dataKey="name" tick={{ fill: '#8B9DC3', fontSize: 11 }} width={110} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Bar dataKey="count" fill="#FF4D6A" radius={[0, 4, 4, 0]} name="Count" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-          </div>
-        </>
-      ) : (
-        <div className="glass-card p-12 text-center">
-          <BarChart3 className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-          <p className="text-[var(--text-secondary)] mb-2">No progress data yet</p>
-          <p className="text-sm text-[var(--text-muted)]">Complete some interview sessions to see your progress here</p>
+          <ResponsiveContainer width="100%" height={250}>
+            <RadarChart data={radarData}>
+              <PolarGrid stroke="rgba(255,255,255,0.08)" />
+              <PolarAngleAxis dataKey="dimension" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
+              <Radar name="Score" dataKey="score" stroke="#6366F1" fill="rgba(99,102,241,0.22)" strokeWidth={2} />
+            </RadarChart>
+          </ResponsiveContainer>
         </div>
-      )}
 
-      {/* Session History */}
-      {sessions.length > 0 && (
-        <div className="glass-card overflow-hidden">
-          <div className="p-5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
-            <h2 className="text-base font-semibold text-[var(--text-primary)]">Session History</h2>
+        {/* Weakness Frequency */}
+        <div className="glass-card p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <BarChart3 className="w-4 h-4" style={{ color: 'var(--warning)' }} />
+            <h3 className="font-display text-base font-bold" style={{ color: 'var(--text-primary)' }}>Common Weaknesses</h3>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  {['Date', 'Company', 'Role', 'Round', 'Mode', 'Score', 'Status'].map(h => (
-                    <th key={h} className="p-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">{h}</th>
+          {weaknessArr.length === 0 ? (
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No weakness data yet</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={weaknessArr.map(([name, count]) => ({ name, count }))} layout="vertical">
+                <XAxis type="number" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
+                <YAxis type="category" dataKey="name" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} width={120} />
+                <Tooltip content={customTooltip} />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]} name="Occurrences">
+                  {weaknessArr.map(([, count], i) => (
+                    <Cell key={i} fill={count > 5 ? 'var(--danger)' : count > 3 ? 'var(--warning)' : 'var(--text-muted)'} />
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map((s) => (
-                  <tr key={s.id} className="hover:bg-white/[0.02]" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    <td className="p-3 text-sm text-[var(--text-secondary)] font-mono">{new Date(s.created_at).toLocaleDateString()}</td>
-                    <td className="p-3 text-sm text-[var(--text-primary)]">{s.company || '-'}</td>
-                    <td className="p-3 text-sm text-[var(--text-secondary)]">{s.role || '-'}</td>
-                    <td className="p-3 text-sm text-[var(--text-secondary)]">{s.round}</td>
-                    <td className="p-3 text-sm text-[var(--text-secondary)]">{s.mode}</td>
-                    <td className="p-3"><span className={`font-mono text-sm font-semibold ${
-                      (s.overall_score || 0) >= 70 ? 'text-[var(--green)]' : (s.overall_score || 0) >= 50 ? 'text-[var(--amber)]' : 'text-[var(--red)]'
-                    }`}>{s.overall_score ? Math.round(s.overall_score) : '-'}</span></td>
-                    <td className="p-3"><span className={`text-xs px-2 py-0.5 rounded ${
-                      s.status === 'COMPLETED' ? 'bg-[rgba(0,214,143,0.12)] text-[var(--green)]' : 'bg-[rgba(245,166,35,0.12)] text-[var(--amber)]'
-                    }`}>{s.status}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* Milestones */}
+      {/* Achievements */}
       <div className="glass-card p-6">
-        <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
-          <Trophy className="w-4 h-4 text-[var(--amber)]" /> Achievements
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {allMilestones.map((m) => {
-            const earned = milestones.includes(m);
+        <div className="flex items-center gap-2 mb-5">
+          <Award className="w-4 h-4" style={{ color: 'var(--warning)' }} />
+          <h3 className="font-display text-base font-bold" style={{ color: 'var(--text-primary)' }}>Achievements</h3>
+        </div>
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+          {milestoneData.map(m => {
+            const earned = milestones.includes(m.id);
             return (
-              <div key={m} className={`p-3 rounded-xl text-center transition-colors ${
-                earned ? 'bg-[rgba(245,166,35,0.08)] border border-[rgba(245,166,35,0.2)]' : 'bg-white/[0.03] border border-[var(--border-subtle)] opacity-40'
-              }`}>
-                <Trophy className={`w-6 h-6 mx-auto mb-2 ${earned ? 'text-[var(--amber)]' : 'text-[var(--text-muted)]'}`} />
-                <p className={`text-xs font-medium ${earned ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
-                  {milestoneLabels[m]}
-                </p>
+              <div key={m.id} className={`text-center p-3 rounded-xl ${earned ? '' : 'opacity-40'}`} style={{ backgroundColor: earned ? 'rgba(245,158,11,0.06)' : 'rgba(255,255,255,0.02)' }}>
+                <span className="text-2xl">{m.emoji}</span>
+                <p className="text-[10px] font-medium mt-1" style={{ color: earned ? 'var(--text-primary)' : 'var(--text-muted)' }}>{m.name}</p>
+                <p className="text-[9px]" style={{ color: 'var(--text-muted)' }}>{m.req}</p>
               </div>
             );
           })}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

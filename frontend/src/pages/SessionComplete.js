@@ -1,165 +1,229 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowRight, Trophy, Target, ChevronDown, ChevronUp, Mic2, BarChart3 } from 'lucide-react';
+import {
+  ArrowLeft, Share2, RotateCcw, CheckCircle, AlertCircle,
+  ChevronDown, ChevronUp, FileText, Lightbulb, Sparkles
+} from 'lucide-react';
 import { Button } from '../components/ui/button';
-import { interviewAPI } from '../lib/api';
 import ScoreRing from '../components/ScoreRing';
+import { interviewAPI } from '../lib/api';
 import { useInterviewStore } from '../lib/store';
-
-const dimensions = [
-  { key: 'clarity', label: 'Clarity', color: 'var(--blue)' },
-  { key: 'confidence', label: 'Confidence', color: 'var(--green)' },
-  { key: 'structure', label: 'Structure', color: 'var(--amber)' },
-  { key: 'depth', label: 'Depth', color: 'var(--purple)' },
-  { key: 'relevance', label: 'Relevance', color: 'var(--blue)' },
-  { key: 'completeness', label: 'Completeness', color: 'var(--green)' },
-];
+import { toast } from 'sonner';
+import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer } from 'recharts';
 
 export default function SessionComplete() {
   const { sessionId } = useParams();
+  const navigate = useNavigate();
+  const { reset } = useInterviewStore();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [expandedAnswer, setExpandedAnswer] = useState(null);
-  const reset = useInterviewStore((s) => s.reset);
 
   useEffect(() => {
-    reset();
-    interviewAPI.getSession(sessionId).then(res => {
-      setData(res.data);
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, [sessionId]);
+    const fetchReport = async () => {
+      try {
+        const res = await interviewAPI.getSession(sessionId);
+        setData(res.data);
+      } catch (err) {
+        toast.error('Failed to load report');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchReport();
+    return () => reset();
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
-    return <div className="flex items-center justify-center h-[60vh]"><div className="w-8 h-8 border-2 border-[var(--blue)] border-t-transparent rounded-full animate-spin" /></div>;
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <div className="w-16 h-16 border-4 border-t-[var(--primary-indigo)] border-white/10 rounded-full animate-spin mb-4" />
+        <p className="font-display text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Generating your report...</p>
+        <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>Analyzing your performance across 6 dimensions</p>
+      </div>
+    );
   }
 
-  if (!data) {
-    return <div className="text-center py-20 text-[var(--text-secondary)]">Session not found</div>;
-  }
+  if (!data) return null;
 
-  const { session, answers } = data;
-  const score = session.overall_score || 0;
+  const session = data.session || {};
+  const answers = data.answers || [];
+  const summary = data.summary || {};
+
+  const dims = [
+    { key: 'clarity_score', label: 'Clarity', color: '#60A5FA' },
+    { key: 'confidence_score', label: 'Confidence', color: '#22D3EE' },
+    { key: 'relevance_score', label: 'Relevance', color: '#6366F1' },
+    { key: 'structure_score', label: 'Structure', color: '#10B981' },
+    { key: 'completeness_score', label: 'Completeness', color: '#F59E0B' },
+    { key: 'depth_score', label: 'Depth', color: '#A78BFA' },
+  ];
+
+  const radarData = dims.map(d => ({
+    dimension: d.label,
+    score: session[d.key] || 0,
+  }));
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }} className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <div className="text-center mb-8">
-        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 15 }}>
-          <ScoreRing score={score} size={120} strokeWidth={8} className="mx-auto mb-4" />
-        </motion.div>
-        <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-1">Interview Complete</h1>
-        <p className="text-[var(--text-secondary)]">
-          {session.company} — {session.role} · {session.persona} · {session.round}
-        </p>
+      <div className="flex items-center justify-between">
+        <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-muted)' }}>
+          <ArrowLeft className="w-4 h-4" /> Back to Dashboard
+        </button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" className="rounded-xl text-xs" style={{ color: 'var(--text-secondary)' }} data-testid="share-report-button">
+            <Share2 className="w-3.5 h-3.5 mr-1" /> Share
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => { reset(); navigate('/dashboard/interview'); }} className="rounded-xl text-xs" style={{ color: 'var(--primary-indigo)' }} data-testid="practice-again-button">
+            <RotateCcw className="w-3.5 h-3.5 mr-1" /> Practice Again
+          </Button>
+        </div>
       </div>
 
-      {/* Score Breakdown */}
+      {/* Report Header */}
       <div className="glass-card p-6">
-        <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">Performance Breakdown</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {dimensions.map((dim, i) => {
-            const val = session[`${dim.key}_score`] || 0;
-            return (
-              <motion.div
-                key={dim.key}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.08 }}
-                className="text-center p-3 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}
-              >
-                <p className="font-mono text-2xl font-bold mb-1" style={{ color: dim.color }}>{Math.round(val)}</p>
-                <p className="text-xs text-[var(--text-muted)]">{dim.label}</p>
-              </motion.div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Session Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="glass-card p-4 text-center">
-          <p className="font-mono text-xl font-bold text-[var(--text-primary)]">{answers?.length || 0}</p>
-          <p className="text-xs text-[var(--text-muted)]">Questions Answered</p>
-        </div>
-        <div className="glass-card p-4 text-center">
-          <p className="font-mono text-xl font-bold text-[var(--text-primary)]">{session.total_questions || 0}</p>
-          <p className="text-xs text-[var(--text-muted)]">Total Questions</p>
-        </div>
-        <div className="glass-card p-4 text-center">
-          <p className="font-mono text-xl font-bold text-[var(--text-primary)]">{session.mode}</p>
-          <p className="text-xs text-[var(--text-muted)]">Mode</p>
-        </div>
-      </div>
-
-      {/* Answer Review */}
-      {answers && answers.length > 0 && (
-        <div className="glass-card overflow-hidden">
-          <div className="p-5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
-            <h2 className="text-base font-semibold text-[var(--text-primary)]">Answer Review</h2>
-          </div>
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div>
-            {answers.map((a, i) => (
-              <div key={a.id} className="border-b last:border-b-0" style={{ borderColor: 'var(--border-subtle)' }}>
-                <button
-                  onClick={() => setExpandedAnswer(expandedAnswer === i ? null : i)}
-                  className="w-full p-4 flex items-center gap-3 text-left hover:bg-white/[0.02]"
-                >
-                  <span className="font-mono text-xs text-[var(--text-muted)] w-6">Q{i + 1}</span>
-                  <span className="flex-1 text-sm text-[var(--text-primary)] truncate">{a.question_text}</span>
-                  <span className={`font-mono text-sm font-semibold px-2 py-0.5 rounded-md ${
-                    (a.score || 0) >= 70 ? 'bg-[rgba(0,214,143,0.12)] text-[var(--green)]' :
-                    (a.score || 0) >= 50 ? 'bg-[rgba(245,166,35,0.12)] text-[var(--amber)]' :
-                    'bg-[rgba(255,77,106,0.12)] text-[var(--red)]'
-                  }`}>
-                    {Math.round(a.score || 0)}
-                  </span>
-                  {expandedAnswer === i ? <ChevronUp className="w-4 h-4 text-[var(--text-muted)]" /> : <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />}
-                </button>
-                {expandedAnswer === i && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    className="px-4 pb-4 space-y-3"
-                  >
-                    <div className="p-3 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
-                      <p className="text-xs font-medium text-[var(--text-muted)] mb-1">Your Answer</p>
-                      <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{a.answer_text}</p>
-                    </div>
-                    {a.improved_answer && (
-                      <div className="p-3 rounded-xl" style={{ backgroundColor: 'rgba(79,142,247,0.06)' }}>
-                        <p className="text-xs font-medium text-[var(--blue)] mb-1">Improved Version</p>
-                        <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{a.improved_answer}</p>
-                      </div>
-                    )}
-                    {a.what_worked && (
-                      <p className="text-xs text-[var(--green)]">What worked: {a.what_worked}</p>
-                    )}
-                    {a.missing_points && (
-                      <p className="text-xs text-[var(--amber)]">Missing: {a.missing_points}</p>
-                    )}
-                  </motion.div>
-                )}
+            <h1 className="font-display text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{session.company} — {session.role}</h1>
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <span className="text-xs px-2 py-1 rounded-lg" style={{ backgroundColor: 'rgba(99,102,241,0.1)', color: 'var(--primary-indigo)' }}>{session.round}</span>
+              <span className="text-xs px-2 py-1 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)' }}>{session.persona}</span>
+              <span className="text-xs px-2 py-1 rounded-lg" style={{ backgroundColor: 'rgba(16,185,129,0.1)', color: 'var(--success)' }}>Complete</span>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{answers.length} questions</span>
+            </div>
+          </div>
+          <ScoreRing score={Math.round(session.overall_score || 0)} size={110} label="Overall" />
+        </div>
+      </div>
+
+      {/* Performance Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Radar Chart */}
+        <div className="glass-card p-6">
+          <h3 className="font-display text-base font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Performance Radar</h3>
+          <ResponsiveContainer width="100%" height={250}>
+            <RadarChart data={radarData}>
+              <PolarGrid stroke="rgba(255,255,255,0.08)" />
+              <PolarAngleAxis dataKey="dimension" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
+              <Radar name="Score" dataKey="score" stroke="#6366F1" fill="rgba(99,102,241,0.22)" strokeWidth={2} />
+            </RadarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Dimension Breakdown */}
+        <div className="glass-card p-6">
+          <h3 className="font-display text-base font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Dimension Scores</h3>
+          <div className="space-y-4">
+            {dims.map((d, i) => {
+              const val = Math.round(session[d.key] || 0);
+              return (
+                <div key={d.key}>
+                  <div className="flex justify-between text-sm mb-1.5">
+                    <span style={{ color: 'var(--text-secondary)' }}>{d.label}</span>
+                    <span className="font-mono font-semibold" style={{ color: d.color }}>{val}</span>
+                  </div>
+                  <div className="h-2 rounded-full" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
+                    <motion.div initial={{ width: 0 }} animate={{ width: `${val}%` }} transition={{ duration: 0.8, delay: i * 0.08 }}
+                      className="h-full rounded-full" style={{ backgroundColor: d.color }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* AI Coach Summary */}
+      {summary?.overallFeedback && (
+        <div className="glass-card p-6" style={{ borderLeft: '3px solid var(--primary-indigo)' }}>
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles className="w-4 h-4" style={{ color: 'var(--primary-indigo)' }} />
+            <h3 className="font-display text-base font-bold" style={{ color: 'var(--text-primary)' }}>AI Coach Summary</h3>
+          </div>
+          <p className="text-sm leading-relaxed italic" style={{ color: 'var(--text-secondary)' }}>"{summary.overallFeedback}"</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+            {summary.strengths && summary.strengths.length > 0 && (
+              <div>
+                <span className="text-xs font-medium" style={{ color: 'var(--success)' }}>Strengths</span>
+                <ul className="mt-1 space-y-1">
+                  {summary.strengths.map((s, i) => (
+                    <li key={i} className="text-xs flex items-start gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                      <CheckCircle className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: 'var(--success)' }} /> {s}
+                    </li>
+                  ))}
+                </ul>
               </div>
-            ))}
+            )}
+            {summary.improvements && summary.improvements.length > 0 && (
+              <div>
+                <span className="text-xs font-medium" style={{ color: 'var(--warning)' }}>Areas to Improve</span>
+                <ul className="mt-1 space-y-1">
+                  {summary.improvements.map((s, i) => (
+                    <li key={i} className="text-xs flex items-start gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                      <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: 'var(--warning)' }} /> {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Actions */}
-      <div className="flex flex-col sm:flex-row gap-3 pb-8">
-        <Link to="/dashboard/interview" className="flex-1">
-          <Button className="w-full h-12 bg-[var(--blue)] hover:bg-[#3E7FF0] text-white rounded-xl font-semibold btn-glow" data-testid="session-complete-new-interview">
-            <Mic2 className="w-4 h-4 mr-2" /> Start New Interview
-          </Button>
-        </Link>
-        <Link to="/dashboard/progress" className="flex-1">
-          <Button variant="outline" className="w-full h-12 rounded-xl border-white/10 text-[var(--text-primary)]">
-            <BarChart3 className="w-4 h-4 mr-2" /> View Progress
-          </Button>
-        </Link>
+      {/* Question Review */}
+      <div className="glass-card p-6">
+        <h3 className="font-display text-base font-bold mb-5" style={{ color: 'var(--text-primary)' }}>Question Review ({answers.length})</h3>
+        <div className="space-y-3">
+          {answers.map((a, i) => (
+            <div key={a.id || i} className="rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)' }}>
+              <button onClick={() => setExpandedAnswer(expandedAnswer === i ? null : i)} className="w-full flex items-center gap-3 p-4 text-left">
+                <span className="font-mono text-xs px-2 py-1 rounded-lg flex-shrink-0" style={{ backgroundColor: 'rgba(99,102,241,0.1)', color: 'var(--primary-indigo)' }}>Q{i + 1}</span>
+                <span className="flex-1 text-sm truncate" style={{ color: 'var(--text-primary)' }}>{a.question_text}</span>
+                <span className="font-mono text-sm font-semibold flex-shrink-0" style={{ color: (a.score || 0) >= 70 ? 'var(--success)' : (a.score || 0) >= 40 ? 'var(--warning)' : 'var(--danger)' }}>{Math.round(a.score || 0)}</span>
+                {expandedAnswer === i ? <ChevronUp className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} /> : <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />}
+              </button>
+              {expandedAnswer === i && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} transition={{ duration: 0.2 }} className="px-4 pb-4 space-y-3">
+                  <div className="p-3 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                    <span className="text-xs font-medium block mb-1" style={{ color: 'var(--text-muted)' }}>Your Answer</span>
+                    <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{a.answer_text}</p>
+                  </div>
+                  {a.improved_answer && (
+                    <div className="p-3 rounded-xl" style={{ backgroundColor: 'rgba(34,211,238,0.04)', border: '1px solid rgba(34,211,238,0.1)' }}>
+                      <span className="text-xs font-medium block mb-1" style={{ color: 'var(--accent-cyan)' }}>Improved Version</span>
+                      <p className="text-sm leading-relaxed italic" style={{ color: 'var(--text-secondary)' }}>{a.improved_answer}</p>
+                    </div>
+                  )}
+                  {a.what_worked && (
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-3.5 h-3.5 mt-0.5" style={{ color: 'var(--success)' }} />
+                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{a.what_worked}</p>
+                    </div>
+                  )}
+                  {a.missing_points && (
+                    <div className="flex items-start gap-2">
+                      <Lightbulb className="w-3.5 h-3.5 mt-0.5" style={{ color: 'var(--warning)' }} />
+                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{a.missing_points}</p>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+
+      {/* Next Steps */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <Button onClick={() => { reset(); navigate('/dashboard/interview'); }} className="flex-1 h-11 rounded-xl font-semibold btn-glow text-white" style={{ backgroundColor: 'var(--primary-indigo)' }} data-testid="practice-again-full-button">
+          Practice Again (Same Setup)
+        </Button>
+        <Button variant="outline" onClick={() => { reset(); navigate('/dashboard/interview'); }} className="flex-1 h-11 rounded-xl" style={{ borderColor: 'var(--border-strong)', color: 'var(--text-primary)' }}>
+          New Interview
+        </Button>
+      </div>
+    </motion.div>
   );
 }
