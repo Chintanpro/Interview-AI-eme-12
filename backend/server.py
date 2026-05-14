@@ -662,11 +662,189 @@ async def get_progress(user=Depends(get_current_user)):
         "milestones": user.get('milestones', [])
     }
 
+# ==================== STRIPE PAYMENT ROUTES ====================
+
+from fastapi import Request
+from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
+
+# Fixed plan prices (server-side only - NEVER accept amounts from frontend)
+PLAN_PRICES = {
+    "PRO": {"monthly": 19.00, "yearly": 180.00},
+    "PREMIUM": {"monthly": 49.00, "yearly": 468.00},
+}
+
+@api_router.post("/payments/create-checkout")
+async def create_checkout_session(data: dict, http_request: Request, user=Depends(get_current_user)):
+    """Create a Stripe checkout session for plan upgrade"""
+    plan = data.get('plan', 'PRO')
+    billing = data.get('billing', 'monthly')  # 'monthly' or 'yearly'
+    origin_url = data.get('origin_url', '')
+
+    if plan not in PLAN_PRICES:
+        raise HTTPException(status_code=400, detail="Invalid plan")
+    if billing not in ['monthly', 'yearly']:
+        raise HTTPException(status_code=400, detail="Invalid billing cycle")
+    if not origin_url:
+        raise HTTPException(status_code=400, detail="Origin URL required")
+
+    amount = PLAN_PRICES[plan][billing]
+    currency = "usd"
+
+    # Build dynamic URLs
+    success_url = f"{origin_url}/dashboard/settings?payment=success&session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin_url}/dashboard/settings?payment=cancelled"
+
+    # Initialize Stripe
+    stripe_api_key = os.environ.get('STRIPE_API_KEY', '')
+    host_url = str(http_request.base_url)
+    webhook_url = f"{host_url}api/webhook/stripe"
+    stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
+
+    metadata = {
+        "user_id": user["id"],
+        "user_email": user.get("email", ""),
+        "plan": plan,
+        "billing": billing,
+    }
+
+    checkout_request = CheckoutSessionRequest(
+        amount=amount,
+        currency=currency,
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata=metadata,
+    )
+
+    try:
+        session_response: CheckoutSessionResponse = await stripe_checkout.create_checkout_session(checkout_request)
+    except Exception as e:
+        logger.error(f"Stripe checkout error: {e}")
+        raise HTTPException(status_code=500, detail=f"Payment service error: {str(e)}")
+
+    # Store transaction record in DB
+    transaction = {
+        "id": gen_id(),
+        "session_id": session_response.session_id,
+        "user_id": user["id"],
+        "user_email": user.get("email", ""),
+        "plan": plan,
+        "billing": billing,
+        "amount": amount,
+        "currency": currency,
+        "payment_status": "INITIATED",
+        "status": "pending",
+        "metadata": metadata,
+        "created_at": now_utc().isoformat(),
+    }
+    await db.payment_transactions.insert_one(transaction)
+
+    return {
+        "checkout_url": session_response.url,
+        "session_id": session_response.session_id,
+    }
+
+
+@api_router.get("/payments/status/{checkout_session_id}")
+async def get_payment_status(checkout_session_id: str, http_request: Request, user=Depends(get_current_user)):
+    """Poll Stripe for checkout session status and update DB"""
+    stripe_api_key = os.environ.get('STRIPE_API_KEY', '')
+    host_url = str(http_request.base_url)
+    webhook_url = f"{host_url}api/webhook/stripe"
+    stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
+
+    try:
+        status_response: CheckoutStatusResponse = await stripe_checkout.get_checkout_status(checkout_session_id)
+    except Exception as e:
+        logger.error(f"Stripe status error: {e}")
+        raise HTTPException(status_code=500, detail=f"Payment status check failed: {str(e)}")
+
+    # Find the transaction
+    transaction = await db.payment_transactions.find_one({"session_id": checkout_session_id})
+
+    if transaction and transaction.get("payment_status") != "PAID":
+        new_status = status_response.payment_status.upper() if status_response.payment_status else "PENDING"
+        
+        # Update transaction
+        await db.payment_transactions.update_one(
+            {"session_id": checkout_session_id},
+            {"$set": {
+                "payment_status": new_status,
+                "status": status_response.status,
+                "updated_at": now_utc().isoformat(),
+            }}
+        )
+
+        # If paid, upgrade the user's plan
+        if new_status == "PAID":
+            plan = transaction.get("plan", "PRO")
+            user_id = transaction.get("user_id")
+            if user_id:
+                await db.users.update_one(
+                    {"id": user_id},
+                    {"$set": {"plan": plan}}
+                )
+                logger.info(f"User {user_id} upgraded to {plan} via Stripe payment")
+
+    return {
+        "status": status_response.status,
+        "payment_status": status_response.payment_status,
+        "amount_total": status_response.amount_total,
+        "currency": status_response.currency,
+        "metadata": status_response.metadata,
+    }
+
+
+@api_router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    """Handle Stripe webhook events"""
+    stripe_api_key = os.environ.get('STRIPE_API_KEY', '')
+    host_url = str(request.base_url)
+    webhook_url = f"{host_url}api/webhook/stripe"
+    stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
+
+    body = await request.body()
+    signature = request.headers.get("Stripe-Signature", "")
+
+    try:
+        webhook_response = await stripe_checkout.handle_webhook(body, signature)
+        
+        if webhook_response and webhook_response.payment_status == "paid":
+            session_id = webhook_response.session_id
+            metadata = webhook_response.metadata or {}
+            
+            # Prevent duplicate processing
+            tx = await db.payment_transactions.find_one({"session_id": session_id})
+            if tx and tx.get("payment_status") != "PAID":
+                await db.payment_transactions.update_one(
+                    {"session_id": session_id},
+                    {"$set": {
+                        "payment_status": "PAID",
+                        "status": "complete",
+                        "webhook_event_id": webhook_response.event_id,
+                        "updated_at": now_utc().isoformat(),
+                    }}
+                )
+                
+                user_id = metadata.get("user_id")
+                plan = metadata.get("plan", "PRO")
+                if user_id:
+                    await db.users.update_one(
+                        {"id": user_id},
+                        {"$set": {"plan": plan}}
+                    )
+                    logger.info(f"Webhook: User {user_id} upgraded to {plan}")
+        
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return {"status": "error", "detail": str(e)}
+
+
 # ==================== PLAN / UPGRADE ROUTES ====================
 
 @api_router.post("/plan/upgrade")
 async def upgrade_plan(data: dict, user=Depends(get_current_user)):
-    """Mock upgrade - in production this would go through Stripe"""
+    """Direct plan upgrade (for testing/dev or manual override)"""
     new_plan = data.get('plan', 'PRO')
     if new_plan not in ['FREE', 'PRO', 'PREMIUM']:
         raise HTTPException(status_code=400, detail="Invalid plan")
@@ -675,7 +853,8 @@ async def upgrade_plan(data: dict, user=Depends(get_current_user)):
         {"id": user["id"]},
         {"$set": {"plan": new_plan}}
     )
-    return {"message": f"Plan updated to {new_plan}", "plan": new_plan}
+    updated = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+    return {"message": f"Plan updated to {new_plan}", "plan": new_plan, "user": serialize_doc(updated)}
 
 # ==================== ROOT ====================
 
@@ -708,6 +887,8 @@ async def startup():
     await db.answers.create_index("session_id")
     await db.company_preps.create_index([("company_name", 1), ("role", 1)])
     await db.resumes.create_index("user_id")
+    await db.payment_transactions.create_index("session_id", unique=True)
+    await db.payment_transactions.create_index("user_id")
     logger.info("InterviewIQ API started successfully")
 
 @app.on_event("shutdown")

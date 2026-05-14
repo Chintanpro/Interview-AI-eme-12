@@ -1,38 +1,22 @@
 [
   {
-    "content": "Phase 1: Deploy existing codebase - copy backend/frontend, install deps, configure env",
+    "content": "Phase 3: Add STRIPE_API_KEY to .env and install dependencies",
     "status": "completed"
   },
   {
-    "content": "Phase 1: Core AI POC - test Claude question generation + evaluation + summary",
+    "content": "Phase 3: Backend - Stripe checkout endpoints (create session, status, webhook)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Get design guidelines from design agent",
+    "content": "Phase 3: Frontend - Stripe checkout flow in Pricing/Settings + payment success page",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Build complete backend with all endpoints",
+    "content": "Phase 3: Frontend - Voice interview mode with Web Speech API",
     "status": "completed"
-  },
-  {
-    "content": "Phase 2: Build complete frontend with all pages and premium UI",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: All user stories covered in Development and testing",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: End-to-end testing with testing agent - 97.4% pass rate",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 3: Polish UI - scroll to more landing sections, mobile responsive checks",
-    "status": "pending"
   },
   {
     "content": "Phase 3: End-to-end testing with testing agent",
-    "status": "pending"
+    "status": "in_progress"
   }
 ]

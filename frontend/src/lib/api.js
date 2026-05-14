@@ -81,4 +81,10 @@ export const planAPI = {
   upgrade: (data) => api.post('/plan/upgrade', data),
 };
 
+// Payments (Stripe)
+export const paymentsAPI = {
+  createCheckout: (data) => api.post('/payments/create-checkout', data),
+  getStatus: (sessionId) => api.get(`/payments/status/${sessionId}`),
+};
+
 export default api;

@@ -289,6 +289,46 @@ class InterviewIQAPITester:
         )
         return success
 
+    def test_stripe_checkout_pro(self):
+        """Test Stripe checkout session creation for Pro plan"""
+        success, response = self.run_test(
+            "Stripe Checkout - Pro Plan",
+            "POST",
+            "payments/create-checkout",
+            200,
+            data={
+                "plan": "PRO",
+                "billing": "monthly",
+                "origin_url": "https://nexus-builder-21.preview.emergentagent.com"
+            }
+        )
+        
+        if success and 'checkout_url' in response and 'session_id' in response:
+            print(f"   Checkout URL: {response['checkout_url'][:60]}...")
+            print(f"   Session ID: {response['session_id']}")
+            return True
+        return False
+
+    def test_stripe_checkout_premium(self):
+        """Test Stripe checkout session creation for Premium plan"""
+        success, response = self.run_test(
+            "Stripe Checkout - Premium Plan",
+            "POST",
+            "payments/create-checkout",
+            200,
+            data={
+                "plan": "PREMIUM",
+                "billing": "monthly",
+                "origin_url": "https://nexus-builder-21.preview.emergentagent.com"
+            }
+        )
+        
+        if success and 'checkout_url' in response and 'session_id' in response:
+            print(f"   Checkout URL: {response['checkout_url'][:60]}...")
+            print(f"   Session ID: {response['session_id']}")
+            return True
+        return False
+
     def print_summary(self):
         """Print test summary"""
         print("\n" + "="*60)
@@ -348,9 +388,11 @@ def main():
     print("-"*60)
     tester.test_company_prep()
     
-    print("\n💳 PLAN TESTS")
+    print("\n💳 PLAN & PAYMENT TESTS")
     print("-"*60)
     tester.test_plan_upgrade()
+    tester.test_stripe_checkout_pro()
+    tester.test_stripe_checkout_premium()
     
     # Print summary
     all_passed = tester.print_summary()

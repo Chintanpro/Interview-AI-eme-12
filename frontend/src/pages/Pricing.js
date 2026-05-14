@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Check, ArrowLeft, Zap, Crown } from 'lucide-react';
+import { Check, ArrowLeft, Zap, Crown, Loader2, CreditCard } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useAuthStore } from '../lib/store';
-import { planAPI } from '../lib/api';
+import { paymentsAPI } from '../lib/api';
 import { toast } from 'sonner';
 
 const plans = [
@@ -36,7 +36,7 @@ const plans = [
       'Progress analytics & trends',
       'STAR answer rewrites',
     ],
-    cta: 'Start Pro Trial',
+    cta: 'Upgrade to Pro',
     style: 'primary',
     popular: true,
     icon: Zap,
@@ -62,7 +62,8 @@ const plans = [
 
 export default function Pricing() {
   const [yearly, setYearly] = useState(false);
-  const { isAuthenticated, user, updateUser } = useAuthStore();
+  const [checkoutLoading, setCheckoutLoading] = useState('');
+  const { isAuthenticated, user } = useAuthStore();
   const navigate = useNavigate();
 
   const handleSelect = async (planKey) => {
@@ -74,15 +75,27 @@ export default function Pricing() {
       toast.info('You are on the Free plan');
       return;
     }
+
+    // Use Stripe checkout
+    setCheckoutLoading(planKey);
     try {
-      const res = await planAPI.upgrade({ plan: planKey });
-      updateUser(res.data.user || { ...user, plan: planKey });
-      toast.success(`Upgraded to ${planKey}!`);
-      navigate('/dashboard');
+      const originUrl = window.location.origin;
+      const res = await paymentsAPI.createCheckout({
+        plan: planKey,
+        billing: yearly ? 'yearly' : 'monthly',
+        origin_url: originUrl,
+      });
+      if (res.data.checkout_url) {
+        window.location.href = res.data.checkout_url;
+      }
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Upgrade failed');
+      toast.error(err.response?.data?.detail || 'Checkout failed. Please try again.');
+    } finally {
+      setCheckoutLoading('');
     }
   };
+
+  const currentPlan = user?.plan || 'FREE';
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-base)' }}>
@@ -116,41 +129,68 @@ export default function Pricing() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {plans.map((plan, i) => (
-            <motion.div key={plan.key} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
-              className={`glass-card p-6 relative ${plan.popular ? 'ring-1 pulse-glow' : ''}`}
-              style={plan.popular ? { borderColor: 'rgba(99,102,241,0.3)' } : {}}
-              data-testid={`pricing-plan-${plan.key.toLowerCase()}`}>
-              {plan.popular && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs px-3 py-1 rounded-full font-semibold text-white" style={{ backgroundColor: 'var(--primary-indigo)' }}>Most Popular</span>
-              )}
-              <div className="flex items-center gap-2 mb-2">
-                {plan.icon && <plan.icon className="w-4 h-4" style={{ color: plan.popular ? 'var(--primary-indigo)' : 'var(--accent-cyan)' }} />}
-                <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{plan.name}</h3>
-              </div>
-              <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>{plan.desc}</p>
-              <div className="flex items-baseline gap-1 mb-6">
-                <span className="font-display text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>{yearly ? plan.price.yearly : plan.price.monthly}</span>
-                <span className="text-sm" style={{ color: 'var(--text-muted)' }}>/month</span>
-              </div>
-              <ul className="space-y-3 mb-8">
-                {plan.features.map((f, j) => (
-                  <li key={j} className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                    <Check className="w-4 h-4 flex-shrink-0" style={{ color: plan.popular ? 'var(--primary-indigo)' : plan.style === 'cyan' ? 'var(--accent-cyan)' : 'var(--text-muted)' }} />{f}
-                  </li>
-                ))}
-              </ul>
-              <Button onClick={() => handleSelect(plan.key)} className={`w-full rounded-xl h-11 font-semibold ${
-                plan.popular ? 'text-white btn-glow' : 'border'
-              }`} style={
-                plan.popular ? { backgroundColor: 'var(--primary-indigo)' } :
-                plan.style === 'cyan' ? { backgroundColor: 'rgba(34,211,238,0.1)', borderColor: 'rgba(34,211,238,0.2)', color: 'var(--accent-cyan)' } :
-                { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }
-              } data-testid={`pricing-plan-${plan.key.toLowerCase()}-select-button`}>
-                {plan.cta}
-              </Button>
-            </motion.div>
-          ))}
+          {plans.map((plan, i) => {
+            const isCurrent = isAuthenticated && currentPlan === plan.key;
+            const planOrder = { FREE: 0, PRO: 1, PREMIUM: 2 };
+            const isDowngrade = isAuthenticated && planOrder[plan.key] <= planOrder[currentPlan] && plan.key !== 'FREE';
+            
+            return (
+              <motion.div key={plan.key} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
+                className={`glass-card p-6 relative ${plan.popular ? 'ring-1 pulse-glow' : ''}`}
+                style={plan.popular ? { borderColor: 'rgba(99,102,241,0.3)' } : {}}
+                data-testid={`pricing-plan-${plan.key.toLowerCase()}`}>
+                {plan.popular && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs px-3 py-1 rounded-full font-semibold text-white" style={{ backgroundColor: 'var(--primary-indigo)' }}>Most Popular</span>
+                )}
+                <div className="flex items-center gap-2 mb-2">
+                  {plan.icon && <plan.icon className="w-4 h-4" style={{ color: plan.popular ? 'var(--primary-indigo)' : 'var(--accent-cyan)' }} />}
+                  <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{plan.name}</h3>
+                </div>
+                <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>{plan.desc}</p>
+                <div className="flex items-baseline gap-1 mb-6">
+                  <span className="font-display text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>{yearly ? plan.price.yearly : plan.price.monthly}</span>
+                  <span className="text-sm" style={{ color: 'var(--text-muted)' }}>/month</span>
+                </div>
+                <ul className="space-y-3 mb-8">
+                  {plan.features.map((f, j) => (
+                    <li key={j} className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      <Check className="w-4 h-4 flex-shrink-0" style={{ color: plan.popular ? 'var(--primary-indigo)' : plan.style === 'cyan' ? 'var(--accent-cyan)' : 'var(--text-muted)' }} />{f}
+                    </li>
+                  ))}
+                </ul>
+                
+                {isCurrent ? (
+                  <Button disabled className="w-full rounded-xl h-11 font-semibold border" style={{ backgroundColor: 'rgba(16,185,129,0.08)', borderColor: 'rgba(16,185,129,0.2)', color: 'var(--success)' }}>
+                    Current Plan
+                  </Button>
+                ) : (
+                  <Button onClick={() => handleSelect(plan.key)} disabled={!!checkoutLoading || isDowngrade}
+                    className={`w-full rounded-xl h-11 font-semibold ${plan.popular ? 'text-white btn-glow' : 'border'}`}
+                    style={
+                      plan.popular ? { backgroundColor: 'var(--primary-indigo)' } :
+                      plan.style === 'cyan' ? { backgroundColor: 'rgba(34,211,238,0.1)', borderColor: 'rgba(34,211,238,0.2)', color: 'var(--accent-cyan)' } :
+                      { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }
+                    }
+                    data-testid={`pricing-plan-${plan.key.toLowerCase()}-select-button`}>
+                    {checkoutLoading === plan.key ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Redirecting to Stripe...</>
+                    ) : plan.key === 'FREE' ? (
+                      plan.cta
+                    ) : (
+                      <><CreditCard className="w-4 h-4 mr-2" /> {plan.cta}</>
+                    )}
+                  </Button>
+                )}
+              </motion.div>
+            );
+          })}
+        </div>
+
+        {/* Stripe badge */}
+        <div className="text-center mt-10">
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Secure payments powered by Stripe. Cancel anytime.
+          </p>
         </div>
       </div>
     </div>
