@@ -2,8 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 /**
  * Custom hook for Web Speech API - speech-to-text and text-to-speech.
- * Fixes: stale closures, duplicate transcript accumulation, voice loading.
- * Works best in Chrome/Edge browsers.
+ * Keeps finalized text across browser recognition restarts and cleans up
+ * speech resources when the component unmounts.
  */
 export function useVoice() {
   const [isListening, setIsListening] = useState(false);
@@ -13,54 +13,36 @@ export function useVoice() {
   const [isSupported, setIsSupported] = useState(false);
   const [error, setError] = useState(null);
 
-  // Use refs to avoid stale closure problems
   const isListeningRef = useRef(false);
   const recognitionRef = useRef(null);
   const synthRef = useRef(null);
-  const voicesLoadedRef = useRef(false);
+  const accumulatedTranscriptRef = useRef('');
+  const restartTimerRef = useRef(null);
+  const speechKeepAliveRef = useRef(null);
 
-  // Keep ref in sync with state
   useEffect(() => {
     isListeningRef.current = isListening;
   }, [isListening]);
 
-  // Check browser support and set up voice loading
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const hasSpeechRecognition = !!SpeechRecognition;
-    const hasSpeechSynthesis = !!window.speechSynthesis;
-    setIsSupported(hasSpeechRecognition);
+    setIsSupported(Boolean(SpeechRecognition));
 
-    if (hasSpeechSynthesis) {
+    if (window.speechSynthesis) {
       synthRef.current = window.speechSynthesis;
-
-      // Voices may load async; listen for the event
-      const loadVoices = () => {
-        const v = window.speechSynthesis.getVoices();
-        if (v.length > 0) voicesLoadedRef.current = true;
-      };
-      loadVoices();
-      window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
-
-      return () => {
-        window.speechSynthesis.removeEventListener('voiceschanged', loadVoices);
-        if (recognitionRef.current) {
-          try { recognitionRef.current.abort(); } catch {}
-        }
-        if (synthRef.current) {
-          synthRef.current.cancel();
-        }
-      };
     }
 
     return () => {
+      isListeningRef.current = false;
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       if (recognitionRef.current) {
-        try { recognitionRef.current.abort(); } catch {}
+        try { recognitionRef.current.abort(); } catch (err) { console.warn('Failed to abort speech recognition:', err); }
       }
+      if (speechKeepAliveRef.current) clearInterval(speechKeepAliveRef.current);
+      if (synthRef.current) synthRef.current.cancel();
     };
   }, []);
 
-  // Start listening — creates a fresh recognition instance each time
   const startListening = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -68,13 +50,12 @@ export function useVoice() {
       return;
     }
 
-    // Abort any existing instance
     if (recognitionRef.current) {
-      try { recognitionRef.current.abort(); } catch {}
+      try { recognitionRef.current.abort(); } catch (err) { console.warn('Failed to abort existing recognition:', err); }
       recognitionRef.current = null;
     }
 
-    // Reset state
+    accumulatedTranscriptRef.current = '';
     setTranscript('');
     setInterimTranscript('');
     setError(null);
@@ -86,23 +67,18 @@ export function useVoice() {
     recognition.maxAlternatives = 1;
 
     recognition.onresult = (event) => {
-      // Compute the complete transcript from all results each time.
-      // This avoids double-counting because event.results is cumulative
-      // within a single recognition session.
-      let final = '';
       let interim = '';
-
-      for (let i = 0; i < event.results.length; i++) {
+      let finalChunk = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const text = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          final += text + ' ';
-        } else {
-          interim += text;
-        }
+        if (event.results[i].isFinal) finalChunk += `${text} `;
+        else interim += text;
       }
-
-      setTranscript(final.trim());
-      setInterimTranscript(interim);
+      if (finalChunk) {
+        accumulatedTranscriptRef.current = `${accumulatedTranscriptRef.current} ${finalChunk}`.trim();
+      }
+      setTranscript(accumulatedTranscriptRef.current);
+      setInterimTranscript(interim.trim());
     };
 
     recognition.onerror = (event) => {
@@ -111,152 +87,111 @@ export function useVoice() {
         setError('Microphone access denied. Please allow microphone permission.');
         isListeningRef.current = false;
         setIsListening(false);
-      } else if (event.error === 'aborted') {
-        // Intentional abort, do nothing
-      } else if (event.error === 'no-speech') {
-        // No speech detected — this is normal, recognition will auto-end
-        // We'll restart in onend if still listening
       } else if (event.error === 'network') {
         setError('Network error. Speech recognition requires internet connection.');
+      } else if (event.error !== 'aborted' && event.error !== 'no-speech') {
+        setError(`Speech recognition failed: ${event.error}`);
       }
     };
 
     recognition.onend = () => {
-      // Use ref (not state) to check if we should restart
-      if (isListeningRef.current) {
-        // Small delay before restarting to avoid rapid fire
-        setTimeout(() => {
-          if (isListeningRef.current && recognitionRef.current) {
-            try {
-              recognitionRef.current.start();
-            } catch (err) {
-              console.warn('Failed to restart recognition:', err);
-            }
-          }
+      if (isListeningRef.current && recognitionRef.current === recognition) {
+        restartTimerRef.current = setTimeout(() => {
+          if (!isListeningRef.current || recognitionRef.current !== recognition) return;
+          try { recognition.start(); } catch (err) { console.warn('Failed to restart recognition:', err); }
         }, 100);
       }
     };
 
     recognitionRef.current = recognition;
-
     try {
       recognition.start();
       isListeningRef.current = true;
       setIsListening(true);
     } catch (err) {
       console.error('Failed to start speech recognition:', err);
+      recognitionRef.current = null;
+      isListeningRef.current = false;
+      setIsListening(false);
       setError('Failed to start speech recognition. Please try again.');
     }
   }, []);
 
-  // Stop listening
   const stopListening = useCallback(() => {
     isListeningRef.current = false;
     setIsListening(false);
     setInterimTranscript('');
-
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
     if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch {}
+      try { recognitionRef.current.stop(); } catch (err) { console.warn('Failed to stop speech recognition:', err); }
     }
   }, []);
 
-  // Get final transcript snapshot (combines final + interim into one string)
   const getFinalTranscript = useCallback(() => {
-    const combined = (transcript + ' ' + interimTranscript).trim();
+    const combined = `${accumulatedTranscriptRef.current} ${interimTranscript}`.trim();
+    accumulatedTranscriptRef.current = combined;
     setTranscript(combined);
     setInterimTranscript('');
     return combined;
-  }, [transcript, interimTranscript]);
+  }, [interimTranscript]);
 
-  // Text-to-speech
-  const speak = useCallback((text, options = {}) => {
-    return new Promise((resolve) => {
-      if (!synthRef.current || !text) { resolve(); return; }
+  const speak = useCallback((text, options = {}) => new Promise((resolve) => {
+    if (!synthRef.current || !text) { resolve(); return; }
+    synthRef.current.cancel();
+    if (speechKeepAliveRef.current) clearInterval(speechKeepAliveRef.current);
 
-      // Cancel any ongoing speech
-      synthRef.current.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = options.rate ?? 0.95;
+    utterance.pitch = options.pitch ?? 1;
+    utterance.volume = options.volume ?? 1;
+    utterance.lang = 'en-US';
 
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = options.rate || 0.95;
-      utterance.pitch = options.pitch || 1.0;
-      utterance.volume = options.volume || 1.0;
-      utterance.lang = 'en-US';
+    const voices = synthRef.current.getVoices();
+    const preferredVoice = voices.find(v => v.name.includes('Google US English'))
+      || voices.find(v => v.name.includes('Samantha'))
+      || voices.find(v => v.name.includes('Microsoft') && v.lang === 'en-US')
+      || voices.find(v => v.lang === 'en-US' && v.default)
+      || voices.find(v => v.lang.startsWith('en'));
+    if (preferredVoice) utterance.voice = preferredVoice;
 
-      // Select a good English voice
-      const voices = synthRef.current.getVoices();
-      if (voices.length > 0) {
-        const preferredVoice =
-          voices.find(v => v.name.includes('Google US English')) ||
-          voices.find(v => v.name.includes('Samantha')) ||
-          voices.find(v => v.name.includes('Microsoft') && v.lang === 'en-US') ||
-          voices.find(v => v.lang === 'en-US' && v.default) ||
-          voices.find(v => v.lang.startsWith('en'));
-
-        if (preferredVoice) {
-          utterance.voice = preferredVoice;
-        }
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (speechKeepAliveRef.current) {
+        clearInterval(speechKeepAliveRef.current);
+        speechKeepAliveRef.current = null;
       }
+      setIsSpeaking(false);
+      resolve();
+    };
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = finish;
+    utterance.onerror = (event) => { console.warn('TTS error:', event); finish(); };
 
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => { setIsSpeaking(false); resolve(); };
-      utterance.onerror = (e) => {
-        console.warn('TTS error:', e);
-        setIsSpeaking(false);
-        resolve();
-      };
-
-      // Chrome bug: speechSynthesis can get stuck. Resume as a workaround.
-      if (synthRef.current.paused) {
+    if (synthRef.current.paused) synthRef.current.resume();
+    synthRef.current.speak(utterance);
+    speechKeepAliveRef.current = setInterval(() => {
+      if (synthRef.current?.speaking) {
+        synthRef.current.pause();
         synthRef.current.resume();
+      } else if (speechKeepAliveRef.current) {
+        clearInterval(speechKeepAliveRef.current);
+        speechKeepAliveRef.current = null;
       }
+    }, 10000);
+  }), []);
 
-      synthRef.current.speak(utterance);
-
-      // Chrome workaround: utterances > ~15s get cut off.
-      // Keep-alive timer to prevent Chrome from pausing synthesis.
-      const keepAlive = setInterval(() => {
-        if (synthRef.current && synthRef.current.speaking) {
-          synthRef.current.pause();
-          synthRef.current.resume();
-        } else {
-          clearInterval(keepAlive);
-        }
-      }, 10000);
-
-      utterance.onend = () => {
-        clearInterval(keepAlive);
-        setIsSpeaking(false);
-        resolve();
-      };
-      utterance.onerror = () => {
-        clearInterval(keepAlive);
-        setIsSpeaking(false);
-        resolve();
-      };
-    });
-  }, []);
-
-  // Stop speaking
   const stopSpeaking = useCallback(() => {
-    if (synthRef.current) {
-      synthRef.current.cancel();
-    }
+    if (speechKeepAliveRef.current) clearInterval(speechKeepAliveRef.current);
+    speechKeepAliveRef.current = null;
+    if (synthRef.current) synthRef.current.cancel();
     setIsSpeaking(false);
   }, []);
 
   return {
-    isListening,
-    transcript,
-    interimTranscript,
-    isSpeaking,
-    isSupported,
-    error,
-    startListening,
-    stopListening,
-    getFinalTranscript,
-    setTranscript,
-    speak,
-    stopSpeaking,
+    isListening, transcript, interimTranscript, isSpeaking, isSupported, error,
+    startListening, stopListening, getFinalTranscript, setTranscript, speak, stopSpeaking,
   };
 }
 
